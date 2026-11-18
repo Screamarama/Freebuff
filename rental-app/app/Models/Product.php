@@ -1,0 +1,108 @@
+<?php
+
+namespace App\Models;
+
+use App\Services\Availability;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class Product extends Model
+{
+    protected $fillable = [
+        'business_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
+        'purchase_order', 'purchase_date',
+        'name', 'description', 'category', 'product_type',
+        'rental_price_hour', 'rental_price_day', 'rental_price_week', 'rental_price_month', 'deposit_amount',
+        'sale_price', 'cost_price', 'stock_quantity', 'available_quantity',
+        'image_url', 'image_path', 'is_active', 'is_featured'
+    ];
+    
+    protected $casts = [
+        'purchase_date' => 'date',
+        'rental_price_hour' => 'decimal:2',
+        'rental_price_day' => 'decimal:2',
+        'rental_price_week' => 'decimal:2',
+        'rental_price_month' => 'decimal:2',
+        'deposit_amount' => 'decimal:2',
+        'sale_price' => 'decimal:2',
+        'cost_price' => 'decimal:2',
+        'is_active' => 'boolean',
+        'is_featured' => 'boolean',
+    ];
+    
+    public function business(): BelongsTo
+    {
+        return $this->belongsTo(Business::class);
+    }
+
+    /** True when the item is rented out. */
+    public function isRental(): bool
+    {
+        return $this->product_type === 'rental';
+    }
+
+    /**
+     * Rentals are free stock minus what today's reservations and live
+     * agreements hold; the stored column is only the sale count.
+     */
+    public function getAvailableQuantityAttribute(): int
+    {
+        if ($this->isSale()) {
+            return (int) ($this->attributes['available_quantity'] ?? 0);
+        }
+
+        // Loaded together with the product by withHeldToday(), so a list needs
+        // no further query per row.
+        if (array_key_exists('held_reservations', $this->attributes)) {
+            return max(0, (int) $this->stock_quantity
+                - (int) $this->attributes['held_reservations']
+                - (int) $this->attributes['held_items']);
+        }
+
+        return app(Availability::class)->availableToday($this);
+    }
+
+    /** Load today's holdings alongside the product for derived availability. */
+    public function scopeWithHeldToday(Builder $query): void
+    {
+        [$reserved, $onAgreements] = app(Availability::class)->heldTodaySubqueries();
+
+        $query->select('products.*')
+            ->selectSub($reserved, 'held_reservations')
+            ->selectSub($onAgreements, 'held_items');
+    }
+
+    /** True when the item is sold. */
+    public function isSale(): bool
+    {
+        return $this->product_type === 'sale';
+    }
+
+    /**
+     * What an <img> should point at: the uploaded file when there is one,
+     * otherwise any pasted image URL. Root-relative so it works on any host.
+     */
+    public function getImageSourceAttribute(): ?string
+    {
+        if ($this->image_path) {
+            return '/storage/'.ltrim($this->image_path, '/');
+        }
+
+        return $this->image_url ?: null;
+    }
+
+    /** "Manufacturer Model (serial)" for listings, skipping missing parts. */
+    public function getEquipmentLabelAttribute(): string
+    {
+        $model = trim(implode(' ', array_filter([$this->manufacturer, $this->model_number])));
+
+        return trim($model . ($this->serial_number ? " (SN: {$this->serial_number})" : ''));
+    }
+
+    public function reservations(): HasMany
+    {
+        return $this->hasMany(Reservation::class);
+    }
+}
