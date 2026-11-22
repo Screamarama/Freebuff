@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug egui-demo",
+      "program": "${workspaceFolder}/target/debug/egui-demo.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false,
+      "sourceLanguages": ["rust"]
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug egui-demo (rebuild first)",
+      "cargo": {
+        "args": ["build", "--bin=egui-demo", "--package=egui-demo"],
+        "filter": {
+          "name": "egui-demo",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false
+    }
+  ]
+}
