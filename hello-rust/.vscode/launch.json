@@ -5,16 +5,6 @@
       "type": "lldb",
       "request": "launch",
       "name": "Debug hello-rust",
-      "program": "${workspaceFolder}/target/debug/hello-rust.exe",
-      "args": [],
-      "cwd": "${workspaceFolder}",
-      "stopOnEntry": false,
-      "sourceLanguages": ["rust"]
-    },
-    {
-      "type": "lldb",
-      "request": "launch",
-      "name": "Debug hello-rust (rebuild first)",
       "cargo": {
         "args": ["build", "--bin=hello-rust", "--package=hello-rust"],
         "filter": {
@@ -25,6 +15,16 @@
       "args": [],
       "cwd": "${workspaceFolder}",
       "stopOnEntry": false
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug hello-rust (prebuilt binary)",
+      "program": "${workspaceFolder}/target/debug/hello-rust.exe",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopOnEntry": false,
+      "sourceLanguages": ["rust"]
     }
   ]
 }
