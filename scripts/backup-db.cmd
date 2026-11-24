@@ -11,17 +11,18 @@ set "SCRIPT=/c/laragon/www/rental-app/scripts/backup-db.sh"
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 
 if not exist "%BASH%" (
-  echo [%DATE% %TIME%] error: bash not found at "%BASH%">>"%LOG%"
+  >>"%LOG%" echo [%DATE% %TIME%] error: bash not found at "%BASH%"
   exit /b 1
 )
 
 if not exist "C:\laragon\www\rental-app\scripts\backup-db.sh" (
-  echo [%DATE% %TIME%] error: backup script not found>>"%LOG%"
+  >>"%LOG%" echo [%DATE% %TIME%] error: backup script not found
   exit /b 1
 )
 
-echo [%DATE% %TIME%] starting backup>>"%LOG%"
+rem Redirect first: a trailing "%RC%>>log" would be read as "0>>log" and lose the line.
+>>"%LOG%" echo [%DATE% %TIME%] starting backup
 "%BASH%" -lc "%SCRIPT%">>"%LOG%" 2>&1
 set "RC=%ERRORLEVEL%"
-echo [%DATE% %TIME%] finished with exit code %RC%>>"%LOG%"
+>>"%LOG%" echo [%DATE% %TIME%] finished with exit code %RC%
 exit /b %RC%
