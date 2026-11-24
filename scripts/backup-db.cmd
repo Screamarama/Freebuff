@@ -21,8 +21,9 @@ if not exist "C:\laragon\www\rental-app\scripts\backup-db.sh" (
 )
 
 rem Redirect first: a trailing "%RC%>>log" would be read as "0>>log" and lose the line.
+rem The off-site copy runs right after the dump; a failure there fails the task.
 >>"%LOG%" echo [%DATE% %TIME%] starting backup
-"%BASH%" -lc "%SCRIPT%">>"%LOG%" 2>&1
+"%BASH%" -lc "%SCRIPT% && /c/laragon/www/rental-app/scripts/backup-offsite.sh">>"%LOG%" 2>&1
 set "RC=%ERRORLEVEL%"
 >>"%LOG%" echo [%DATE% %TIME%] finished with exit code %RC%
 exit /b %RC%
