@@ -18,6 +18,14 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Verification decrypts each copy, so the plaintext goes into one dedicated
+# folder (mode 700) that is swept on every run: a killed run cannot leave a
+# decrypted dump behind.
+ENCRYPT_TMP_DIR="${ENCRYPT_TMP_DIR:-${TMPDIR:-/tmp}/rental-app-offsite}"
+mkdir -p "$ENCRYPT_TMP_DIR"
+chmod 700 "$ENCRYPT_TMP_DIR" 2>/dev/null || true
+find "$ENCRYPT_TMP_DIR" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null || true
+
 BACKUP_DIR="${BACKUP_DIR:-$HOME/Documents/rental-app-backups}"
 OFFSITE_DIR="${OFFSITE_DIR:-$HOME/OneDrive/rental-app-backups}"
 KEY_FILE="${BACKUP_KEY_FILE:-$HOME/.rental-app-backup.key}"
@@ -99,8 +107,8 @@ verify_copy() {
   local dump="$1" target="$2" attempt plain err expected actual
   expected="$(hash_of "$dump")"
   for attempt in 1 2 3; do
-    plain="$(mktemp "${TMPDIR:-/tmp}/rental-offsite.XXXXXX")"
-    err="$(mktemp "${TMPDIR:-/tmp}/rental-offsite-err.XXXXXX")"
+    plain="$(mktemp "$ENCRYPT_TMP_DIR/plain.XXXXXX")"
+    err="$(mktemp "$ENCRYPT_TMP_DIR/err.XXXXXX")"
     if decrypt_to "$target" > "$plain" 2> "$err"; then
       actual="$(hash_of "$plain")"
       if [ "$actual" = "$expected" ]; then
