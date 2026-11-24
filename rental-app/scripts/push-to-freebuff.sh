@@ -9,8 +9,10 @@
 #
 # Each publish creates one upstream commit on top of the current remote branch
 # (a squash of local commits since the last publish), so the Rust demos and
-# other folders are preserved. Env overrides: FREEBUFF_URL, FREEBUFF_BRANCH,
-# FREEBUFF_PREFIX, FREEBUFF_REMOTE.
+# other folders are preserved. The app's real history is mirrored to a separate
+# branch on every run, so the squashed snapshots are never the only copy.
+# Env overrides: FREEBUFF_URL, FREEBUFF_BRANCH, FREEBUFF_PREFIX, FREEBUFF_REMOTE,
+# FREEBUFF_HISTORY_REF.
 set -euo pipefail
 
 REMOTE_NAME="${FREEBUFF_REMOTE:-freebuff}"
@@ -30,6 +32,9 @@ usage: push-to-freebuff.sh [--dry-run] [--allow-dirty]
 
   --dry-run      build the upstream commit but do not push it
   --allow-dirty  publish HEAD even if the working tree has uncommitted changes
+
+Also mirrors the app's full local history to the rental-app-history branch,
+so recovery does not depend on the squashed publish commits.
 EOF
 }
 
@@ -72,6 +77,22 @@ fi
 UPSTREAM_REF="refs/remotes/$REMOTE_NAME/$REMOTE_BRANCH"
 LOCAL_SHA="$(git rev-parse --short HEAD)"
 BASE=""
+HISTORY_REF="${FREEBUFF_HISTORY_REF-rental-app-history}"
+
+# The publish commit is a snapshot with no link back to local commits, so mirror
+# HEAD (and therefore its whole ancestry) to its own branch as a real backup.
+mirror_history() {
+  [ -n "$HISTORY_REF" ] || return 0
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "history: would mirror HEAD ($LOCAL_SHA) -> $REMOTE_NAME/$HISTORY_REF"
+    return 0
+  fi
+  if ! git push --quiet --force "$REMOTE_NAME" "HEAD:refs/heads/$HISTORY_REF"; then
+    echo "error: could not mirror local history to $REMOTE_NAME/$HISTORY_REF" >&2
+    exit 1
+  fi
+  echo "history: mirrored $LOCAL_SHA -> $REMOTE_NAME/$HISTORY_REF"
+}
 
 echo "checking $REMOTE_NAME/$REMOTE_BRANCH..."
 ref_status=0
@@ -106,6 +127,7 @@ TREE="$(git write-tree)"
 unset GIT_INDEX_FILE
 
 if [ -n "$BASE" ] && [ "$TREE" = "$(git rev-parse "$BASE^{tree}")" ]; then
+  mirror_history
   echo "up to date: $PREFIX/ on $REMOTE_NAME/$REMOTE_BRANCH already matches HEAD ($LOCAL_SHA)"
   exit 0
 fi
@@ -139,4 +161,5 @@ if ! git push "$REMOTE_NAME" "$COMMIT:refs/heads/$REMOTE_BRANCH"; then
 fi
 
 git update-ref "$UPSTREAM_REF" "$COMMIT"
+mirror_history
 echo "done: ${COMMIT:0:7} pushed to $(git remote get-url "$REMOTE_NAME") ($REMOTE_BRANCH)"
