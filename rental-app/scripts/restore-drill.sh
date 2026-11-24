@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 #
-# Restore drill: load the newest dump into a throwaway database and compare it
-# with the live rental_app database, then drop the scratch database.
+# Restore drill: load dumps into a throwaway database, compare each with the live
+# rental_app database, then drop the scratch database.
 #
-#   bash scripts/restore-drill.sh
-#   bash scripts/restore-drill.sh --dump ~/Documents/rental-app-backups/x.sql.gz
-#   bash scripts/restore-drill.sh --strict      # any row difference fails
-#   bash scripts/restore-drill.sh --keep-scratch
+#   bash scripts/restore-drill.sh                   # local dump + off-site copy
+#   bash scripts/restore-drill.sh --source local    # only the local dump
+#   bash scripts/restore-drill.sh --source offsite  # only the encrypted copy
+#   bash scripts/restore-drill.sh --dump FILE       # one specific dump
+#   bash scripts/restore-drill.sh --strict          # row drift is a failure
 #
-# Fails when the dump will not load, when the table set differs from live, or
-# when a table cannot be counted. Row-count differences are reported as drift
-# since the dump was taken (the live database keeps changing); pass --strict to
-# treat them as failures instead. Run monthly by scripts/restore-drill.cmd.
+# Off-site sources are the gpg copies in OFFSITE_DIR: they are decrypted to a
+# temporary file, which is deleted when the script exits.
+#
+# Fails when a source will not load, when the table set or column count differs
+# from live, or when a table cannot be counted. Row-count differences are
+# reported as drift since the dump was taken; --strict makes them failures.
+# Run monthly by scripts/restore-drill.cmd.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -19,17 +23,22 @@ cd "$(dirname "$0")/.."
 LIVE_DB="${LIVE_DB:-rental_app}"
 SCRATCH_DB="${SCRATCH_DB:-${LIVE_DB}_restore_check}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/Documents/rental-app-backups}"
+OFFSITE_DIR="${OFFSITE_DIR:-$HOME/OneDrive/rental-app-backups}"
+KEY_FILE="${BACKUP_KEY_FILE:-$HOME/.rental-app-backup.key}"
+SOURCE="${SOURCE:-both}"
 DUMP=""
 STRICT=0
 KEEP_SCRATCH=0
 
 usage() {
   cat <<'EOF'
-usage: restore-drill.sh [--dump FILE] [--strict] [--keep-scratch]
+usage: restore-drill.sh [--source local|offsite|both] [--dump FILE]
+                        [--strict] [--keep-scratch]
 
-  Restores a dump into a scratch database and diffs it against the live one.
+  Restores dump(s) into a scratch database and diffs them against the live one.
 
-  --dump FILE      dump to restore (default: newest in BACKUP_DIR)
+  --source WHICH   local dump, encrypted off-site copy, or both (default: both)
+  --dump FILE      restore this specific local dump instead
   --strict         fail on row-count differences, not just schema ones
   --keep-scratch   leave the scratch database in place for inspection
 EOF
@@ -41,6 +50,12 @@ while [ "$#" -gt 0 ]; do
       if [ "$#" -lt 2 ]; then echo "error: --dump needs a file" >&2; exit 2; fi
       DUMP="$2"; shift ;;
     --dump=*) DUMP="${1#*=}" ;;
+    --source)
+      if [ "$#" -lt 2 ]; then echo "error: --source needs local, offsite or both" >&2; exit 2; fi
+      SOURCE="$2"; shift ;;
+    --source=*) SOURCE="${1#*=}" ;;
+    --local) SOURCE=local ;;
+    --offsite) SOURCE=offsite ;;
     --strict) STRICT=1 ;;
     --keep-scratch) KEEP_SCRATCH=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -48,6 +63,11 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+case "$SOURCE" in
+  local|offsite|both) ;;
+  *) echo "error: --source must be local, offsite or both (got '$SOURCE')" >&2; exit 2 ;;
+esac
 
 if [ "$SCRATCH_DB" = "$LIVE_DB" ]; then
   echo "error: SCRATCH_DB must not be the live database ($LIVE_DB)" >&2
@@ -104,6 +124,7 @@ drop_scratch() {
     -e "DROP DATABASE IF EXISTS \`$SCRATCH_DB\`" >/dev/null 2>&1 || true
 }
 
+TEMP_FILES=()
 cleanup() {
   if [ "$KEEP_SCRATCH" -eq 1 ]; then
     echo "kept scratch database: $SCRATCH_DB" >&2
@@ -111,42 +132,13 @@ cleanup() {
     drop_scratch
   fi
   rm -f "$OPTIONS_FILE"
+  if [ "${#TEMP_FILES[@]}" -gt 0 ]; then
+    rm -f "${TEMP_FILES[@]}"
+  fi
 }
 trap cleanup EXIT
 
-if [ -z "$DUMP" ]; then
-  DUMP="$(ls -1t "$BACKUP_DIR"/*.sql.gz 2>/dev/null | head -1 || true)"
-  if [ -z "$DUMP" ]; then
-    echo "error: no .sql.gz dump found in $BACKUP_DIR" >&2
-    exit 1
-  fi
-fi
-if [ ! -f "$DUMP" ]; then
-  echo "error: dump not found: $DUMP" >&2
-  exit 1
-fi
-
-AGE_HOURS="$(awk -v now="$(date +%s)" -v then="$(date -r "$DUMP" +%s)" \
-  'BEGIN { printf "%.1f", (now - then) / 3600 }')"
-echo "dump: $(basename "$DUMP") (${AGE_HOURS}h old)"
-
-echo "creating scratch database $SCRATCH_DB..."
-q "DROP DATABASE IF EXISTS \`$SCRATCH_DB\`; CREATE DATABASE \`$SCRATCH_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >/dev/null
-
-echo "loading dump..."
-LOAD_ERRORS="$(mktemp "${TMPDIR:-/tmp}/rental-drill-load.XXXXXX")"
-set +e
-gzip -dc "$DUMP" | sed -E '/^CREATE DATABASE /d; /^USE /d' \
-  | "$MYSQL" --defaults-extra-file="$OPTIONS_FILE" "$SCRATCH_DB" 2> "$LOAD_ERRORS"
-LOAD_STATUS="${PIPESTATUS[2]}"
-set -e
-if [ "$LOAD_STATUS" -ne 0 ] || [ -s "$LOAD_ERRORS" ]; then
-  echo "FAIL: the dump did not load cleanly (mysql exit $LOAD_STATUS)" >&2
-  sed -n '1,10p' "$LOAD_ERRORS" >&2
-  rm -f "$LOAD_ERRORS"
-  exit 1
-fi
-rm -f "$LOAD_ERRORS"
+TOTAL_FAILURES=0
 
 tables() {
   q "SELECT table_name FROM information_schema.tables WHERE table_schema='$1' AND table_type='BASE TABLE' ORDER BY table_name"
@@ -155,66 +147,160 @@ columns() {
   q "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='$1'"
 }
 
-LIVE_TABLES="$(tables "$LIVE_DB")"
-SCRATCH_TABLES="$(tables "$SCRATCH_DB")"
-LIVE_COLUMNS="$(columns "$LIVE_DB")"
-SCRATCH_COLUMNS="$(columns "$SCRATCH_DB")"
+# drill_one LABEL ARCHIVE(.sql.gz) DISPLAY_NAME [AGE_REFERENCE]
+drill_one() {
+  local label="$1" archive="$2" display="$3" age_ref="${4:-$2}"
+  local failures=0 age_hours load_errors load_status
+  local live_tables restored_tables live_columns restored_columns
+  local live_rows=0 restored_rows=0 drift=0 drift_detail=""
+  local table_name live_count restored_count table_count
 
-FAILURES=0
-if [ "$LIVE_TABLES" != "$SCRATCH_TABLES" ]; then
-  FAILURES=$((FAILURES + 1))
-  echo "FAIL: table sets differ" >&2
-  diff <(printf '%s\n' "$LIVE_TABLES") <(printf '%s\n' "$SCRATCH_TABLES") \
-    | sed 's/^/  /' >&2
-fi
-if [ "$LIVE_COLUMNS" != "$SCRATCH_COLUMNS" ]; then
-  FAILURES=$((FAILURES + 1))
-  echo "FAIL: column count differs (live $LIVE_COLUMNS, restored $SCRATCH_COLUMNS)" >&2
-fi
+  age_hours="$(awk -v now="$(date +%s)" -v then="$(date -r "$age_ref" +%s)" \
+    'BEGIN { printf "%.1f", (now - then) / 3600 }')"
+  echo
+  echo "=== $label: $display (${age_hours}h old) ==="
 
-LIVE_ROWS=0
-SCRATCH_ROWS=0
-DRIFT=0
-DRIFT_DETAIL=""
-while IFS= read -r table_name; do
-  [ -n "$table_name" ] || continue
-  live_count="$(q "SELECT COUNT(*) FROM \`$LIVE_DB\`.\`$table_name\`")"
-  scratch_count="$(q "SELECT COUNT(*) FROM \`$SCRATCH_DB\`.\`$table_name\`")"
-  case "$live_count$scratch_count" in
-    *[!0-9]*)
-      FAILURES=$((FAILURES + 1))
-      echo "FAIL: could not count rows in $table_name (live '$live_count', restored '$scratch_count')" >&2
-      continue
-      ;;
-  esac
-  LIVE_ROWS=$((LIVE_ROWS + live_count))
-  SCRATCH_ROWS=$((SCRATCH_ROWS + scratch_count))
-  if [ "$live_count" != "$scratch_count" ]; then
-    DRIFT=$((DRIFT + 1))
-    DRIFT_DETAIL="${DRIFT_DETAIL}  ${table_name}: live ${live_count}, restored ${scratch_count}
+  echo "creating scratch database $SCRATCH_DB..."
+  q "DROP DATABASE IF EXISTS \`$SCRATCH_DB\`; CREATE DATABASE \`$SCRATCH_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >/dev/null
+
+  echo "loading..."
+  load_errors="$(mktemp "${TMPDIR:-/tmp}/rental-drill-load.XXXXXX")"
+  set +e
+  gzip -dc "$archive" | sed -E '/^CREATE DATABASE /d; /^USE /d' \
+    | "$MYSQL" --defaults-extra-file="$OPTIONS_FILE" "$SCRATCH_DB" 2> "$load_errors"
+  load_status="${PIPESTATUS[2]}"
+  set -e
+  if [ "$load_status" -ne 0 ] || [ -s "$load_errors" ]; then
+    echo "FAIL: $label dump did not load cleanly (mysql exit $load_status)" >&2
+    sed -n '1,10p' "$load_errors" >&2
+    rm -f "$load_errors"
+    drop_scratch
+    TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+    return 0
+  fi
+  rm -f "$load_errors"
+
+  live_tables="$(tables "$LIVE_DB")"
+  restored_tables="$(tables "$SCRATCH_DB")"
+  live_columns="$(columns "$LIVE_DB")"
+  restored_columns="$(columns "$SCRATCH_DB")"
+
+  if [ "$live_tables" != "$restored_tables" ]; then
+    failures=$((failures + 1))
+    echo "FAIL: table sets differ" >&2
+    diff <(printf '%s\n' "$live_tables") <(printf '%s\n' "$restored_tables") \
+      | sed 's/^/  /' >&2
+  fi
+  if [ "$live_columns" != "$restored_columns" ]; then
+    failures=$((failures + 1))
+    echo "FAIL: column count differs (live $live_columns, restored $restored_columns)" >&2
+  fi
+
+  while IFS= read -r table_name; do
+    [ -n "$table_name" ] || continue
+    live_count="$(q "SELECT COUNT(*) FROM \`$LIVE_DB\`.\`$table_name\`")"
+    restored_count="$(q "SELECT COUNT(*) FROM \`$SCRATCH_DB\`.\`$table_name\`")"
+    case "$live_count$restored_count" in
+      *[!0-9]*)
+        failures=$((failures + 1))
+        echo "FAIL: could not count rows in $table_name (live '$live_count', restored '$restored_count')" >&2
+        continue
+        ;;
+    esac
+    live_rows=$((live_rows + live_count))
+    restored_rows=$((restored_rows + restored_count))
+    if [ "$live_count" != "$restored_count" ]; then
+      drift=$((drift + 1))
+      drift_detail="${drift_detail}  ${table_name}: live ${live_count}, restored ${restored_count}
 "
+    fi
+  done <<< "$live_tables"
+
+  table_count="$(printf '%s\n' "$live_tables" | grep -c . || true)"
+  echo "tables : live $table_count / restored $(printf '%s\n' "$restored_tables" | grep -c . || true)"
+  echo "columns: live $live_columns / restored $restored_columns"
+  echo "rows   : live $live_rows / restored $restored_rows"
+
+  if [ "$drift" -gt 0 ]; then
+    if [ "$STRICT" -eq 1 ]; then
+      failures=$((failures + 1))
+      echo "FAIL: $drift table(s) differ in row count" >&2
+    else
+      echo "note: $drift table(s) differ, expected when rows changed since the dump"
+    fi
+    printf '%s' "$drift_detail" >&2
   fi
-done <<< "$LIVE_TABLES"
 
-TABLE_COUNT="$(printf '%s\n' "$LIVE_TABLES" | grep -c . || true)"
-echo "tables : live $TABLE_COUNT / restored $(printf '%s\n' "$SCRATCH_TABLES" | grep -c . || true)"
-echo "columns: live $LIVE_COLUMNS / restored $SCRATCH_COLUMNS"
-echo "rows   : live $LIVE_ROWS / restored $SCRATCH_ROWS"
-
-if [ "$DRIFT" -gt 0 ]; then
-  if [ "$STRICT" -eq 1 ]; then
-    FAILURES=$((FAILURES + 1))
-    echo "FAIL: $DRIFT table(s) differ in row count" >&2
+  if [ "$failures" -gt 0 ]; then
+    echo "FAILED: $label found $failures problem(s)"
+    TOTAL_FAILURES=$((TOTAL_FAILURES + failures))
   else
-    echo "note: $DRIFT table(s) differ, expected when rows changed since the dump"
+    echo "PASS: $label restores with the same schema as $LIVE_DB"
   fi
-  printf '%s' "$DRIFT_DETAIL" >&2
+}
+
+drill_local() {
+  local newest
+  newest="$(ls -1t "$BACKUP_DIR"/*.sql.gz 2>/dev/null | head -1 || true)"
+  if [ -z "$newest" ]; then
+    echo "FAIL: no local dump in $BACKUP_DIR" >&2
+    TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+    return 0
+  fi
+  drill_one local "$newest" "$(basename "$newest")"
+}
+
+drill_offsite() {
+  local newest plain
+  newest="$(ls -1t "$OFFSITE_DIR"/*.sql.gz.gpg 2>/dev/null | head -1 || true)"
+  if [ -z "$newest" ]; then
+    echo "FAIL: no encrypted off-site copy in $OFFSITE_DIR" >&2
+    TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+    return 0
+  fi
+  if [ ! -f "$KEY_FILE" ]; then
+    echo "FAIL: encryption key $KEY_FILE not found; cannot decrypt the off-site copy" >&2
+    TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+    return 0
+  fi
+
+  plain="$(mktemp "${TMPDIR:-/tmp}/rental-drill-plain.XXXXXX")"
+  TEMP_FILES+=("$plain")
+  if ! gpg --batch --quiet --pinentry-mode loopback --passphrase-file "$KEY_FILE" \
+       --decrypt "$newest" > "$plain" 2>/dev/null; then
+    echo "FAIL: could not decrypt $(basename "$newest") with $KEY_FILE" >&2
+    TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+    return 0
+  fi
+  if ! gzip -t "$plain" 2>/dev/null; then
+    echo "FAIL: decrypted $(basename "$newest") is not a valid gzip dump" >&2
+    TOTAL_FAILURES=$((TOTAL_FAILURES + 1))
+    return 0
+  fi
+
+  drill_one offsite "$plain" "$(basename "$newest")" "$newest"
+}
+
+if [ -n "$DUMP" ]; then
+  if [ ! -f "$DUMP" ]; then
+    echo "error: dump not found: $DUMP" >&2
+    exit 1
+  fi
+  drill_one local "$DUMP" "$(basename "$DUMP")"
+else
+  case "$SOURCE" in
+    local) drill_local ;;
+    offsite) drill_offsite ;;
+    both) drill_local; drill_offsite ;;
+  esac
 fi
 
-if [ "$FAILURES" -gt 0 ]; then
-  echo "FAILED: restore drill found $FAILURES problem(s)"
+if [ "$TOTAL_FAILURES" -gt 0 ]; then
+  echo
+  echo "FAILED: restore drill found $TOTAL_FAILURES problem(s)"
   exit 1
 fi
 
-echo "PASS: the dump restores with the same schema as $LIVE_DB"
+echo
+echo "PASS: every source restores with the same schema as $LIVE_DB"
 exit 0
