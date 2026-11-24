@@ -9,8 +9,10 @@
 #   bash scripts/restore-drill.sh --dump FILE       # one specific dump
 #   bash scripts/restore-drill.sh --strict          # row drift is a failure
 #
-# Off-site sources are the gpg copies in OFFSITE_DIR: they are decrypted to a
-# temporary file, which is deleted when the script exits.
+# Off-site sources are the gpg copies in OFFSITE_DIR. They are decrypted into
+# DRILL_TMP_DIR (default: a folder under %TEMP% used only by this script), which
+# is mode 700 and swept at the start of every run, so a killed run cannot leave
+# customer data behind; the exit trap clears it again on the way out.
 #
 # Fails when a source will not load, when the table set or column count differs
 # from live, or when a table cannot be counted. Row-count differences are
@@ -69,6 +71,17 @@ case "$SOURCE" in
   *) echo "error: --source must be local, offsite or both (got '$SOURCE')" >&2; exit 2 ;;
 esac
 
+# All decrypted material lives in this one folder, so leftovers from a crashed
+# or killed run are found and removed by the next run instead of accumulating.
+DRILL_TMP_DIR="${DRILL_TMP_DIR:-${TMPDIR:-/tmp}/rental-app-drill}"
+mkdir -p "$DRILL_TMP_DIR"
+chmod 700 "$DRILL_TMP_DIR" 2>/dev/null || true
+STALE_COUNT="$(find "$DRILL_TMP_DIR" -mindepth 1 -maxdepth 1 -type f 2>/dev/null | wc -l | tr -d ' ')"
+find "$DRILL_TMP_DIR" -mindepth 1 -maxdepth 1 -type f -delete 2>/dev/null || true
+if [ "$STALE_COUNT" -gt 0 ]; then
+  echo "swept $STALE_COUNT stale temp file(s) from $DRILL_TMP_DIR"
+fi
+
 if [ "$SCRATCH_DB" = "$LIVE_DB" ]; then
   echo "error: SCRATCH_DB must not be the live database ($LIVE_DB)" >&2
   exit 2
@@ -105,7 +118,7 @@ DB_PORT="$(env_value DB_PORT)"; DB_PORT="${DB_PORT:-3306}"
 DB_USERNAME="$(env_value DB_USERNAME)"; DB_USERNAME="${DB_USERNAME:-root}"
 DB_PASSWORD="$(env_value DB_PASSWORD)"
 
-OPTIONS_FILE="$(mktemp "${TMPDIR:-/tmp}/rental-drill.XXXXXX")"
+OPTIONS_FILE="$(mktemp "$DRILL_TMP_DIR/options.XXXXXX")"
 chmod 600 "$OPTIONS_FILE" 2>/dev/null || true
 {
   echo "[client]"
@@ -164,7 +177,7 @@ drill_one() {
   q "DROP DATABASE IF EXISTS \`$SCRATCH_DB\`; CREATE DATABASE \`$SCRATCH_DB\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >/dev/null
 
   echo "loading..."
-  load_errors="$(mktemp "${TMPDIR:-/tmp}/rental-drill-load.XXXXXX")"
+  load_errors="$(mktemp "$DRILL_TMP_DIR/load-errors.XXXXXX")"
   set +e
   gzip -dc "$archive" | sed -E '/^CREATE DATABASE /d; /^USE /d' \
     | "$MYSQL" --defaults-extra-file="$OPTIONS_FILE" "$SCRATCH_DB" 2> "$load_errors"
@@ -264,7 +277,7 @@ drill_offsite() {
     return 0
   fi
 
-  plain="$(mktemp "${TMPDIR:-/tmp}/rental-drill-plain.XXXXXX")"
+  plain="$(mktemp "$DRILL_TMP_DIR/plain.XXXXXX")"
   TEMP_FILES+=("$plain")
   if ! gpg --batch --quiet --pinentry-mode loopback --passphrase-file "$KEY_FILE" \
        --decrypt "$newest" > "$plain" 2>/dev/null; then
