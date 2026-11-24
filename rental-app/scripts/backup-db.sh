@@ -9,7 +9,47 @@
 # temporary option file (mode 600) that is deleted on exit, so it never shows
 # up in the process list. Defaults to ~/Documents/rental-app-backups and
 # refuses to write inside the repo.
+#
+# Dumps older than KEEP_DAYS (default 14) are pruned after a successful dump;
+# --keep N overrides it and --keep 0 keeps everything. The "RentalApp DB Backup"
+# scheduled task runs this nightly through scripts/backup-db.cmd.
 set -euo pipefail
+
+KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
+
+usage() {
+  cat <<'EOF'
+usage: backup-db.sh [--keep DAYS]
+
+  Dumps the rental-app database into a dated file in BACKUP_DIR.
+
+  --keep DAYS  remove dumps in BACKUP_DIR older than DAYS (default 14, 0 = keep all)
+EOF
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --keep)
+      if [ "$#" -lt 2 ]; then
+        echo "error: --keep needs a number of days" >&2
+        exit 2
+      fi
+      KEEP_DAYS="$2"
+      shift
+      ;;
+    --keep=*) KEEP_DAYS="${1#*=}" ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "error: unknown argument '$1'" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+case "$KEEP_DAYS" in
+  ''|*[!0-9]*)
+    echo "error: --keep must be a whole number of days (0 keeps everything)" >&2
+    exit 2
+    ;;
+esac
 
 cd "$(dirname "$0")/.."
 
@@ -110,3 +150,16 @@ if [ "$TABLES" -eq 0 ]; then
 fi
 
 echo "backup: $OUT ($((SIZE / 1024)) KB, $TABLES tables)"
+
+# Prune only after a good dump, so a failed run never deletes older copies.
+if [ "$KEEP_DAYS" -gt 0 ]; then
+  PRUNED=0
+  while IFS= read -r old; do
+    [ -n "$old" ] || continue
+    rm -f "$old"
+    PRUNED=$((PRUNED + 1))
+  done < <(find "$BACKUP_DIR" -maxdepth 1 -type f -name "${DB_DATABASE}-*.gz" -mtime +"$KEEP_DAYS")
+  if [ "$PRUNED" -gt 0 ]; then
+    echo "pruned: $PRUNED dump(s) older than $KEEP_DAYS days"
+  fi
+fi
