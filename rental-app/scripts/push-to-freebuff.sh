@@ -44,7 +44,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$PREFIX" in
-  ""|/*|*/|*..*)
+  ""|/*|*..*)
     echo "error: invalid publish prefix '$PREFIX' (expected a relative folder name)" >&2
     exit 2
     ;;
@@ -132,8 +132,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 if ! git push "$REMOTE_NAME" "$COMMIT:refs/heads/$REMOTE_BRANCH"; then
-  echo "error: push rejected; $REMOTE_NAME/$REMOTE_BRANCH changed after it was read." >&2
-  echo "       nothing local was modified; re-run to rebuild on the new tip." >&2
+  echo "error: the push was rejected: $REMOTE_NAME/$REMOTE_BRANCH moved after it was read," >&2
+  echo "       or the remote declined the commit (hook, protected branch, permissions)." >&2
+  echo "       nothing local was modified; re-run to rebuild on the current tip." >&2
   exit 1
 fi
 
