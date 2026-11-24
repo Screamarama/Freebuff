@@ -69,6 +69,7 @@ if [ ! -f "$KEY_FILE" ]; then
   echo "WARNING: keep a copy of this key in a password manager; without it the" >&2
   echo "         off-site dumps cannot be decrypted." >&2
 fi
+chmod 600 "$KEY_FILE" 2>/dev/null || true
 
 mkdir -p "$OFFSITE_DIR"
 
