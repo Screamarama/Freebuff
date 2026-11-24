@@ -87,19 +87,31 @@ decrypt_to() {
 # Decrypt the sealed copy and compare it with the original. Reading the file back
 # immediately after writing it can come up short while OneDrive or an antivirus
 # scanner still holds it, so retry before calling a copy broken.
+# Hash from stdin: sha256sum prefixes a backslash when the filename contains one,
+# which happens when the task runs with a Windows-style HOME, and that prefix
+# would make two identical files look different.
+hash_of() {
+  sha256sum < "$1" | cut -d' ' -f1
+}
+
 verify_copy() {
-  local dump="$1" target="$2" attempt plain expected actual
-  expected="$(sha256sum "$dump" | cut -d' ' -f1)"
+  local dump="$1" target="$2" attempt plain err expected actual
+  expected="$(hash_of "$dump")"
   for attempt in 1 2 3; do
     plain="$(mktemp "${TMPDIR:-/tmp}/rental-offsite.XXXXXX")"
-    if decrypt_to "$target" > "$plain" 2>/dev/null; then
-      actual="$(sha256sum "$plain" | cut -d' ' -f1)"
-      rm -f "$plain"
-      [ "$actual" = "$expected" ] && return 0
+    err="$(mktemp "${TMPDIR:-/tmp}/rental-offsite-err.XXXXXX")"
+    if decrypt_to "$target" > "$plain" 2> "$err"; then
+      actual="$(hash_of "$plain")"
+      if [ "$actual" = "$expected" ]; then
+        rm -f "$plain" "$err"
+        return 0
+      fi
+      echo "  verify $attempt/3: mismatch (expected ${expected:0:12}, got ${actual:0:12}, $(wc -c < "$plain") bytes vs $(wc -c < "$dump"))" >&2
     else
-      rm -f "$plain"
+      echo "  verify $attempt/3: gpg failed: $(head -1 "$err" 2>/dev/null)" >&2
     fi
-    if [ "$attempt" -lt 3 ]; then sleep 1; fi
+    rm -f "$plain" "$err"
+    if [ "$attempt" -lt 3 ]; then sleep 2; fi
   done
   return 1
 }
