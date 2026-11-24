@@ -12,6 +12,7 @@
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-$HOME/Documents/rental-app-backups}"
+OFFSITE_DIR="${OFFSITE_DIR:-$HOME/OneDrive/rental-app-backups}"
 TASK_NAME="${TASK_NAME:-RentalApp DB Backup}"
 MAX_AGE_HOURS="${MAX_AGE_HOURS:-30}"
 
@@ -67,6 +68,17 @@ else
     problem "newest dump is ${AGE_HOURS}h old (limit ${MAX_AGE_HOURS}h): $(basename "$NEWEST")"
   else
     echo "newest dump: $(basename "$NEWEST") — ${AGE_HOURS}h old, ${SIZE_KB} KB"
+  fi
+
+  OFFSITE_COPY="$OFFSITE_DIR/$(basename "$NEWEST").gpg"
+  if [ -d "$OFFSITE_DIR" ]; then
+    if [ -f "$OFFSITE_COPY" ]; then
+      echo "off-site: $(basename "$OFFSITE_COPY") present in $OFFSITE_DIR"
+    else
+      problem "newest dump has no off-site encrypted copy ($OFFSITE_COPY)"
+    fi
+  else
+    echo "note: off-site folder $OFFSITE_DIR not found; skipping the off-site check"
   fi
 fi
 
