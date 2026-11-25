@@ -38,6 +38,14 @@
                         <x-nav-link :href="route('products.index')" :active="request()->routeIs('products.*')">
                             {{ __('Products') }}
                         </x-nav-link>
+
+                        <x-nav-link :href="route('equipment-models.index')" :active="request()->routeIs('equipment-models.*')">
+                            {{ __('Equipment models') }}
+                        </x-nav-link>
+
+                        <x-nav-link :href="route('service-hold.index')" :active="request()->routeIs('service-hold.*')">
+                            {{ __('Service hold') }}
+                        </x-nav-link>
                         <x-nav-link :href="route('customers.index')" :active="request()->routeIs('customers.*')">
                             {{ __('Customers') }}
                         </x-nav-link>
@@ -137,6 +145,14 @@
             @if (in_array(Auth::user()->role, ['admin', 'manager', 'clerk']))
                 <x-responsive-nav-link :href="route('products.index')" :active="request()->routeIs('products.*')">
                     {{ __('Products') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('equipment-models.index')" :active="request()->routeIs('equipment-models.*')">
+                    {{ __('Equipment models') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('service-hold.index')" :active="request()->routeIs('service-hold.*')">
+                    {{ __('Service hold') }}
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('customers.index')" :active="request()->routeIs('customers.*')">
                     {{ __('Customers') }}

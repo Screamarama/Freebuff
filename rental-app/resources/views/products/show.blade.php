@@ -54,6 +54,19 @@
                     </div>
 
                     @if ($product->isRental())
+                        <div class="sm:col-span-2">
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Equipment model</dt>
+                            <dd class="mt-1 text-sm text-gray-900">
+                                @if ($product->equipmentModel)
+                                    <a href="{{ route('equipment-models.edit', $product->equipmentModel) }}" class="text-indigo-600 hover:text-indigo-900">
+                                        {{ $product->equipmentModel->name }}{{ $product->equipmentModel->label() !== $product->equipmentModel->name ? ' — '.$product->equipmentModel->label() : '' }}
+                                    </a>
+                                @else
+                                    —
+                                @endif
+                            </dd>
+                        </div>
+
                         <div>
                             <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Model number</dt>
                             <dd class="mt-1 text-sm text-gray-900">{{ $product->model_number ?: '—' }}</dd>
@@ -112,6 +125,18 @@
                                 @if ($product->depreciation_started_on)
                                     <span class="font-normal text-gray-500">since {{ $product->depreciation_started_on->format('M j, Y') }}</span>
                                 @endif
+                            </dd>
+                        </div>
+                    @endif
+
+                    {{-- Resale expectation: management and office staff only. --}}
+                    @if ($product->isRental() && $product->used_sale_price !== null
+                        && in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Used sales price</dt>
+                            <dd class="mt-1 text-sm text-gray-900">
+                                <x-money :amount="$product->used_sale_price" />
+                                <span class="font-normal text-gray-500">if sold used</span>
                             </dd>
                         </div>
                     @endif

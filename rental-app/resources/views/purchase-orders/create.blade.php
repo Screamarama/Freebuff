@@ -17,7 +17,8 @@
                 <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg space-y-4">
                     <p class="text-sm text-gray-600">
                         @if ($type === 'rental')
-                            Each unit received on this order becomes its own rental product record, carrying the unit cost and purchase date used for depreciation.
+                            Describe the equipment you are buying. Each unit received lands in service hold, where you set its
+                            rental rates, salvage value and used sales price before committing it to the fleet.
                         @else
                             Receiving this order adds the units to the stock and available quantity of each sales item.
                         @endif
@@ -64,10 +65,10 @@
                         <button type="button" id="add-line" class="text-sm text-indigo-600 hover:text-indigo-900">+ Add line</button>
                     </div>
 
-                    @if ($products->isEmpty())
+                    @if ($type !== 'rental' && $products->isEmpty())
                         <p class="mt-4 text-sm text-gray-500">
-                            There are no {{ $type === 'rental' ? 'rental' : 'sales' }} items yet.
-                            <a href="{{ route('products.create', ['type' => $type === 'rental' ? 'rental' : 'sale']) }}" class="text-indigo-600 hover:text-indigo-900">Add one first</a>.
+                            There are no sales items yet.
+                            <a href="{{ route('products.create', ['type' => 'sale']) }}" class="text-indigo-600 hover:text-indigo-900">Add one first</a>.
                         </p>
                     @endif
 
@@ -77,15 +78,22 @@
                     <div id="lines" class="mt-4 space-y-4">
                         <div class="line grid gap-3 sm:grid-cols-12 sm:items-end border border-gray-200 rounded-md p-3">
                             <div class="sm:col-span-6">
-                                <label class="block text-xs font-medium text-gray-600">Item</label>
-                                <select name="items[0][product_id]" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
-                                    <option value="">Choose an item</option>
-                                    @foreach ($products as $product)
-                                        <option value="{{ $product->id }}" @selected(old('items.0.product_id') == $product->id)>
-                                            {{ $product->name }}{{ $product->sku || $product->equipment_number ? ' — '.($product->sku ?: $product->equipment_number) : '' }}
-                                        </option>
-                                    @endforeach
-                                </select>
+                                <label class="block text-xs font-medium text-gray-600">{{ $type === 'rental' ? 'Equipment' : 'Item' }}</label>
+                                @if ($type === 'rental')
+                                    <input type="text" name="items[0][description]" maxlength="150"
+                                           value="{{ old('items.0.description') }}"
+                                           placeholder="e.g. CAT 320 GC excavator"
+                                           class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                                @else
+                                    <select name="items[0][product_id]" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                                        <option value="">Choose an item</option>
+                                        @foreach ($products as $product)
+                                            <option value="{{ $product->id }}" @selected(old('items.0.product_id') == $product->id)>
+                                                {{ $product->name }}{{ $product->sku ? ' — '.$product->sku : '' }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                @endif
                             </div>
                             <div class="sm:col-span-2">
                                 <label class="block text-xs font-medium text-gray-600">Quantity</label>
@@ -95,7 +103,8 @@
                             <div class="sm:col-span-3">
                                 <label class="block text-xs font-medium text-gray-600">Unit cost</label>
                                 <input type="number" step="0.01" min="0" name="items[0][unit_cost]" value="{{ old('items.0.unit_cost') }}"
-                                       placeholder="List cost" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                                       placeholder="{{ $type === 'rental' ? 'Purchase cost' : 'List cost' }}"
+                                       class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
                             </div>
                             <div class="sm:col-span-1">
                                 <button type="button" class="remove-line text-sm text-red-600 hover:text-red-800">Remove</button>
@@ -115,15 +124,20 @@
     <template id="line-template">
         <div class="line grid gap-3 sm:grid-cols-12 sm:items-end border border-gray-200 rounded-md p-3">
             <div class="sm:col-span-6">
-                <label class="block text-xs font-medium text-gray-600">Item</label>
-                <select data-field="product_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
-                    <option value="">Choose an item</option>
-                    @foreach ($products as $product)
-                        <option value="{{ $product->id }}">
-                            {{ $product->name }}{{ $product->sku || $product->equipment_number ? ' — '.($product->sku ?: $product->equipment_number) : '' }}
-                        </option>
-                    @endforeach
-                </select>
+                <label class="block text-xs font-medium text-gray-600">{{ $type === 'rental' ? 'Equipment' : 'Item' }}</label>
+                @if ($type === 'rental')
+                    <input type="text" data-field="description" maxlength="150" placeholder="e.g. CAT 320 GC excavator"
+                           class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                @else
+                    <select data-field="product_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                        <option value="">Choose an item</option>
+                        @foreach ($products as $product)
+                            <option value="{{ $product->id }}">
+                                {{ $product->name }}{{ $product->sku ? ' — '.$product->sku : '' }}
+                            </option>
+                        @endforeach
+                    </select>
+                @endif
             </div>
             <div class="sm:col-span-2">
                 <label class="block text-xs font-medium text-gray-600">Quantity</label>
@@ -132,7 +146,7 @@
             </div>
             <div class="sm:col-span-3">
                 <label class="block text-xs font-medium text-gray-600">Unit cost</label>
-                <input type="number" step="0.01" min="0" data-field="unit_cost" placeholder="List cost"
+                <input type="number" step="0.01" min="0" data-field="unit_cost" placeholder="{{ $type === 'rental' ? 'Purchase cost' : 'List cost' }}"
                        class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
             </div>
             <div class="sm:col-span-1">

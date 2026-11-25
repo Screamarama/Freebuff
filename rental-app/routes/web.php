@@ -29,6 +29,13 @@ Route::middleware('auth')->group(function () {
 // cross-tenant record lists; they manage details via impersonation.
 Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager,clerk'])->group(function () {
     Route::resource('products', ProductController::class);
+    // Rental catalogue: what a unit is, separate from the unit itself.
+    Route::resource('equipment-models', \App\Http\Controllers\EquipmentModelController::class)->except(['show']);
+
+    // Received rental equipment waits here until it is set up and committed.
+    Route::get('/service-hold', [\App\Http\Controllers\ServiceHoldController::class, 'index'])->name('service-hold.index');
+    Route::get('/service-hold/{product}/setup', [\App\Http\Controllers\ServiceHoldController::class, 'setup'])->name('service-hold.setup');
+    Route::post('/service-hold/{product}/commit', [\App\Http\Controllers\ServiceHoldController::class, 'commit'])->name('service-hold.commit');
     Route::resource('customers', CustomerController::class);
     Route::get('/customers/create/cancel', [CustomerController::class, 'cancelCreate'])->name('customers.create.cancel');
     Route::get('/customers/{customer}/statement', [CustomerController::class, 'statement'])->name('customers.statement');
