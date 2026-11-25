@@ -61,6 +61,9 @@
                         </x-nav-link>
                     @endif
                     @if (in_array(Auth::user()->role, ['admin', 'manager']))
+                        <x-nav-link :href="route('purchase-orders.index')" :active="request()->routeIs('purchase-orders.*')">
+                            {{ __('Purchasing') }}
+                        </x-nav-link>
                         <x-nav-link :href="route('theme.edit')" :active="request()->routeIs('theme.*')">
                             {{ __('Branding') }}
                         </x-nav-link>
@@ -158,6 +161,9 @@
                 </x-responsive-nav-link>
             @endif
             @if (in_array(Auth::user()->role, ['admin', 'manager']))
+                <x-responsive-nav-link :href="route('purchase-orders.index')" :active="request()->routeIs('purchase-orders.*')">
+                    {{ __('Purchasing') }}
+                </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('theme.edit')" :active="request()->routeIs('theme.*')">
                     {{ __('Branding') }}
                 </x-responsive-nav-link>

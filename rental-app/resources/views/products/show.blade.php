@@ -94,6 +94,28 @@
                         </dd>
                     </div>
 
+                    @if ($product->isRental() && $product->monthlyDepreciation() !== null)
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Useful life</dt>
+                            <dd class="mt-1 text-sm text-gray-900">{{ $product->useful_life_months }} months</dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Monthly depreciation</dt>
+                            <dd class="mt-1 text-sm text-gray-900"><x-money :amount="$product->monthlyDepreciation()" /></dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Book value today</dt>
+                            <dd class="mt-1 text-sm font-semibold text-gray-900">
+                                <x-money :amount="$product->bookValue() ?? $product->cost_price" />
+                                @if ($product->depreciation_started_on)
+                                    <span class="font-normal text-gray-500">since {{ $product->depreciation_started_on->format('M j, Y') }}</span>
+                                @endif
+                            </dd>
+                        </div>
+                    @endif
+
                     @if ($product->isRental())
                         @foreach (['hour' => 'Rental price / hour', 'day' => 'Rental price / day', 'week' => 'Rental price / week', 'month' => 'Rental price / month'] as $field => $label)
                             <div>
