@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PurchaseOrderItem extends Model
 {
@@ -35,6 +36,14 @@ class PurchaseOrderItem extends Model
     public function equipmentModel(): BelongsTo
     {
         return $this->belongsTo(EquipmentModel::class);
+    }
+
+    /** Units from this line that have been committed to the fleet. */
+    public function committedUnits(): HasMany
+    {
+        return $this->hasMany(Product::class)
+            ->where('product_type', 'rental')
+            ->where('fleet_status', '!=', Product::FLEET_SERVICE_HOLD);
     }
 
     /** Still owed by the supplier (the backordered quantity). */

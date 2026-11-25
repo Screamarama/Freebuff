@@ -122,6 +122,12 @@
                                         {{ \App\Support\Money::format($item->lineTotal(), auth()->user()?->business?->currency) }}
                                     </td>
                                     <td class="px-4 py-3 text-right">
+                                        @if ($order->isRental() && $item->committedUnits->isNotEmpty()
+                                            && in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
+                                            <a href="{{ route('service-hold.line.reopen.form', $item) }}" class="text-sm text-gray-600 hover:text-gray-900">
+                                                Return {{ $item->committedUnits->count() }} to hold
+                                            </a>
+                                        @endif
                                         @if (! $order->isClosed() && $item->quantity_received === 0)
                                             <form method="POST" action="{{ route('purchase-orders.items.destroy', [$order, $item]) }}">
                                                 @csrf

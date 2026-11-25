@@ -4,9 +4,13 @@ namespace Tests\Feature;
 
 use App\Models\AuditLog;
 use App\Models\Business;
+use App\Models\Customer;
 use App\Models\EquipmentModel;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
+use App\Models\RentalContract;
+use App\Models\RentalItem;
+use App\Models\Reservation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -83,6 +87,17 @@ class ServiceHoldTest extends TestCase
             'depreciation_started_on' => '2026-11-25',
             ...$overrides,
         ];
+    }
+
+    private function customer(User $user, string $code = 'C-1'): Customer
+    {
+        return Customer::create([
+            'business_id' => $user->business_id,
+            'customer_code' => $code,
+            'first_name' => 'Test',
+            'last_name' => 'Hirer',
+            'phone' => '555-0101',
+        ]);
     }
 
     public function test_a_held_unit_is_listed_but_not_in_the_fleet(): void
@@ -653,7 +668,8 @@ class ServiceHoldTest extends TestCase
                 'resolution' => 'replacement',
             ])
             ->assertRedirect(route('service-hold.index'))
-            ->assertSessionHasNoErrors();
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('success', '1 unit returned to the supplier. PO-R-0007 is owed it again.');
 
         $this->assertNull(Product::find($units[0]->id));
         $this->assertSame(2, $item->fresh()->quantity_received);
@@ -756,5 +772,262 @@ class ServiceHoldTest extends TestCase
             ->assertNotFound();
 
         $this->assertSame(2, Product::where('purchase_order_item_id', $item->id)->count());
+    }
+
+    public function test_a_committed_unit_can_go_back_to_service_hold_for_correction(): void
+    {
+        $user = $this->tenantUser();
+        $unit = $this->heldUnit($user);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload())
+            ->assertSessionHasNoErrors();
+
+        $modelId = $unit->fresh()->equipment_model_id;
+
+        $this->actingAs($user)
+            ->get(route('products.show', $unit))
+            ->assertOk()
+            ->assertSee('Return to service hold');
+
+        $this->actingAs($user)
+            ->get(route('service-hold.reopen.form', $unit))
+            ->assertOk()
+            ->assertSee('Why is it going back to service hold?')
+            ->assertSee('Excavator');
+
+        $this->actingAs($user)
+            ->post(route('service-hold.reopen', $unit), [
+                'reason' => 'Wrong asset tag — should be FL-204',
+            ])
+            ->assertRedirect(route('service-hold.index'))
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('success', '1 unit is back in service hold, ready to set up again.');
+
+        $unit->refresh();
+
+        // Out of the fleet but unchanged: the tag, serial and catalogue stay put
+        // until it is committed again.
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $unit->fleet_status);
+        $this->assertFalse($unit->is_active);
+        $this->assertSame('EQ-100', $unit->equipment_number);
+        $this->assertSame('CAT0320GC12345', $unit->serial_number);
+        $this->assertSame($modelId, $unit->equipment_model_id);
+
+        $this->actingAs($user)
+            ->get(route('service-hold.index'))
+            ->assertOk()
+            ->assertSee('EQ-100');
+
+        $log = AuditLog::where('action', 'service_hold.reopened')->sole();
+
+        $this->assertSame($user->id, $log->user_id);
+        $this->assertSame('Wrong asset tag — should be FL-204', $log->details['reason']);
+        $this->assertSame('EQ-100', $log->details['units'][0]['equipment_number']);
+        $this->assertSame('Excavator', $log->details['catalogue_model']);
+        $this->assertSame($unit->id, $log->model_id);
+    }
+
+    public function test_a_committed_line_goes_back_to_service_hold_in_one_go(): void
+    {
+        $user = $this->tenantUser();
+        [, $item, $units] = $this->heldLine($user, 3);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.line.commit', $item), $this->linePayload($units))
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($user)
+            ->get(route('purchase-orders.show', $item->purchase_order_id))
+            ->assertOk()
+            ->assertSee('Return 3 to hold');
+
+        $this->actingAs($user)
+            ->get(route('service-hold.line.reopen.form', $item))
+            ->assertOk()
+            ->assertSee('Return 3 units to service hold');
+
+        $this->actingAs($user)
+            ->post(route('service-hold.line.reopen', $item), [
+                'reason' => 'Committed against the wrong model',
+            ])
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('success', '3 units are back in service hold, ready to set up again.');
+
+        foreach ($units as $unit) {
+            $this->assertSame(Product::FLEET_SERVICE_HOLD, $unit->fresh()->fleet_status);
+            $this->assertFalse($unit->fresh()->is_active);
+        }
+
+        $log = AuditLog::where('action', 'service_hold.reopened')->sole();
+        $this->assertCount(3, $log->details['units']);
+        $this->assertSame('PO-R-0007', $log->details['purchase_order']);
+    }
+
+    public function test_a_unit_out_on_a_live_agreement_cannot_go_back_to_hold(): void
+    {
+        $user = $this->tenantUser();
+        $unit = $this->heldUnit($user);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload())
+            ->assertSessionHasNoErrors();
+
+        $contract = RentalContract::create([
+            'business_id' => $user->business_id,
+            'customer_id' => $this->customer($user)->id,
+            'contract_number' => 'RA-0001',
+            'status' => 'active',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDay()->toDateString(),
+        ]);
+
+        RentalItem::create([
+            'contract_id' => $contract->id,
+            'product_id' => $unit->id,
+            'quantity' => 1,
+            'rate_type' => 'day',
+            'unit_price' => 450,
+            'duration' => 1,
+            'subtotal' => 450,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.reopen', $unit), ['reason' => 'Wrong asset tag'])
+            ->assertSessionHasErrors('units');
+
+        $this->assertSame(Product::FLEET_ACTIVE, $unit->fresh()->fleet_status);
+        $this->assertSame(0, AuditLog::where('action', 'service_hold.reopened')->count());
+
+        // Once the agreement is closed, the correction is allowed.
+        $contract->update(['status' => 'returned']);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.reopen', $unit->fresh()), ['reason' => 'Wrong asset tag'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $unit->fresh()->fleet_status);
+    }
+
+    public function test_clerks_and_other_tenants_cannot_reopen_committed_units(): void
+    {
+        $user = $this->tenantUser();
+        $unit = $this->heldUnit($user);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload())
+            ->assertSessionHasNoErrors();
+
+        $clerk = $this->staff($user, 'clerk', 'clerk@tenant.test');
+
+        $this->actingAs($clerk)->get(route('service-hold.reopen.form', $unit))->assertForbidden();
+        $this->actingAs($clerk)
+            ->post(route('service-hold.reopen', $unit), ['reason' => 'Wrong asset tag'])
+            ->assertForbidden();
+
+        $intruder = $this->tenantUser('intruder@tenant.test');
+        $this->actingAs($intruder)->get(route('service-hold.reopen.form', $unit))->assertNotFound();
+
+        // A unit already in the hold has nothing to reopen.
+        $held = $this->heldUnit($user, ['equipment_number' => 'PO-R-0001-2']);
+        $this->actingAs($user)->get(route('service-hold.reopen.form', $held))->assertNotFound();
+    }
+
+    public function test_a_unit_held_by_a_future_reservation_cannot_go_back_to_hold(): void
+    {
+        $user = $this->tenantUser();
+        $unit = $this->heldUnit($user);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload())
+            ->assertSessionHasNoErrors();
+
+        $reservation = Reservation::create([
+            'business_id' => $user->business_id,
+            'product_id' => $unit->id,
+            'customer_id' => $this->customer($user)->id,
+            'created_by' => $user->id,
+            'quantity' => 1,
+            'starts_at' => now()->addDays(3),
+            'ends_at' => now()->addDays(5),
+            'status' => 'upcoming',
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.reopen', $unit), ['reason' => 'Wrong asset tag'])
+            ->assertSessionHasErrors('units');
+
+        $this->assertSame(Product::FLEET_ACTIVE, $unit->fresh()->fleet_status);
+        $this->assertSame(0, AuditLog::where('action', 'service_hold.reopened')->count());
+
+        // Once the reservation is cancelled the unit is free to be corrected.
+        $reservation->update(['status' => 'cancelled']);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.reopen', $unit->fresh()), ['reason' => 'Wrong asset tag'])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $unit->fresh()->fleet_status);
+    }
+
+    public function test_a_reopened_unit_can_be_corrected_and_committed_to_the_right_model(): void
+    {
+        $user = $this->tenantUser();
+        $unit = $this->heldUnit($user);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload(['equipment_number' => 'WRONG-TAG']))
+            ->assertSessionHasNoErrors();
+
+        $wrong = EquipmentModel::query()->firstOrFail();
+        $this->assertSame($wrong->id, $unit->fresh()->equipment_model_id);
+
+        $correct = EquipmentModel::create([
+            'business_id' => $user->business_id,
+            'name' => 'Wheel loader',
+            'manufacturer' => 'Caterpillar',
+            'model_number' => '930M',
+            'rental_price_day' => 650,
+            'useful_life_months' => 72,
+            'salvage_value' => 9000,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.reopen', $unit), [
+                'reason' => 'Wrong asset tag and wrong catalogue match',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $unit->fresh()->fleet_status);
+
+        // Fix the tag and the catalogue details on the setup form, then commit.
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit->fresh()), $this->commitPayload([
+                'equipment_number' => 'WL-930M-01',
+                'name' => 'Wheel loader',
+                'manufacturer' => 'Caterpillar',
+                'model_number' => '930M',
+            ]))
+            ->assertSessionHasNoErrors();
+
+        $unit->refresh();
+
+        $this->assertSame(Product::FLEET_ACTIVE, $unit->fleet_status);
+        $this->assertTrue($unit->is_active);
+        $this->assertSame('WL-930M-01', $unit->equipment_number);
+        $this->assertSame($correct->id, $unit->equipment_model_id);
+
+        // It adopts the corrected model's terms and leaves no third entry behind.
+        $this->assertSame('650.00', $unit->rental_price_day);
+        $this->assertSame(72, $unit->useful_life_months);
+        $this->assertSame(2, EquipmentModel::query()->count());
+        $this->assertSame(1, $correct->products()->count());
+        $this->assertSame(0, $wrong->products()->count());
+
+        $log = AuditLog::where('action', 'service_hold.committed')->latest('id')->firstOrFail();
+        $this->assertSame('Wheel loader', $log->details['catalogue_model']);
+        $this->assertSame('WL-930M-01', $log->details['units'][0]['equipment_number']);
+        $this->assertSame(1, AuditLog::where('action', 'service_hold.reopened')->count());
     }
 }

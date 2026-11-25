@@ -6,6 +6,8 @@ use App\Models\AuditLog;
 use App\Models\EquipmentModel;
 use App\Models\Product;
 use App\Models\PurchaseOrderItem;
+use App\Models\RentalItem;
+use App\Models\Reservation;
 use App\Support\Money;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -299,10 +301,7 @@ class ServiceHoldController extends Controller
             'purchase_order' => $first->purchase_order,
             'line' => $first->purchaseOrderItem?->description,
             'catalogue_model' => $model->name,
-            'units' => $units->map(fn (Product $unit) => [
-                'equipment_number' => $unit->equipment_number,
-                'serial_number' => $unit->serial_number,
-            ])->values()->all(),
+            'units' => $this->unitTags($units),
             'rental_price_hour' => $model->rental_price_hour,
             'rental_price_day' => $model->rental_price_day,
             'rental_price_week' => $model->rental_price_week,
@@ -321,7 +320,8 @@ class ServiceHoldController extends Controller
     {
         $unit = $this->heldUnit($request, $product);
 
-        return $this->returnView(
+        return $this->unitsView(
+            'service-hold.return',
             collect([$unit]),
             'Return '.($unit->equipment_number ?: 'this unit'),
             route('service-hold.return', $unit),
@@ -332,16 +332,18 @@ class ServiceHoldController extends Controller
     {
         $units = $this->heldUnitsForLine($request, $item);
 
-        return $this->returnView(
+        return $this->unitsView(
+            'service-hold.return',
             $units,
             'Return '.$units->count().' '.Str::plural('unit', $units->count()),
             route('service-hold.line.return', $item),
         );
     }
 
-    private function returnView(Collection $units, string $heading, string $action): View
+    /** The shared shell of the return and reopen pages. */
+    private function unitsView(string $view, Collection $units, string $heading, string $action): View
     {
-        return view('service-hold.return', [
+        return view($view, [
             'units' => $units,
             'purchaseOrder' => $units->first()->purchaseOrderItem?->purchaseOrder?->number
                 ?: $units->first()->purchase_order,
@@ -379,10 +381,7 @@ class ServiceHoldController extends Controller
         $replace = $data['resolution'] === 'replacement';
         $count = $units->count();
 
-        $returned = $units->map(fn (Product $unit) => [
-            'equipment_number' => $unit->equipment_number,
-            'serial_number' => $unit->serial_number,
-        ])->values()->all();
+        $returned = $this->unitTags($units);
 
         DB::transaction(function () use ($units, $item, $replace, $count) {
             foreach ($units as $unit) {
@@ -412,7 +411,7 @@ class ServiceHoldController extends Controller
         $message = $count.' '.($count === 1 ? 'unit' : 'units').' returned to the supplier.';
 
         if ($item && $replace) {
-            $message .= ' '.($number ?: 'The purchase order').' is owed them again.';
+            $message .= ' '.($number ?: 'The purchase order').' is owed '.($count === 1 ? 'it' : 'them').' again.';
         } elseif ($item && filled($data['credit_note'] ?? null)) {
             $message .= ' Credit note '.$data['credit_note'].' is on file; '.($number ?: 'the order').' stays received.';
         }
@@ -420,6 +419,108 @@ class ServiceHoldController extends Controller
         return redirect()
             ->route('service-hold.index')
             ->with('success', $message);
+    }
+
+    /** Ask why a fleet unit (or a line's units) is going back to service hold. */
+    public function showReopen(Request $request, Product $product): View
+    {
+        $unit = $this->committedUnit($request, $product);
+
+        return $this->unitsView(
+            'service-hold.reopen',
+            collect([$unit]),
+            'Return '.($unit->equipment_number ?: 'this unit').' to service hold',
+            route('service-hold.reopen', $unit),
+        );
+    }
+
+    public function showReopenLine(Request $request, PurchaseOrderItem $item): View
+    {
+        $units = $this->committedUnitsForLine($request, $item);
+
+        return $this->unitsView(
+            'service-hold.reopen',
+            $units,
+            'Return '.$units->count().' '.Str::plural('unit', $units->count()).' to service hold',
+            route('service-hold.line.reopen', $item),
+        );
+    }
+
+    public function reopenUnit(Request $request, Product $product): RedirectResponse
+    {
+        return $this->reopen($request, collect([$this->committedUnit($request, $product)]));
+    }
+
+    public function reopenLine(Request $request, PurchaseOrderItem $item): RedirectResponse
+    {
+        return $this->reopen($request, $this->committedUnitsForLine($request, $item));
+    }
+
+    /**
+     * Take a fleet unit back out of service so its tag or catalogue match can be
+     * corrected: it keeps its number, serial and rates until it is committed
+     * again, but it is no longer bookable in the meantime.
+     */
+    private function reopen(Request $request, Collection $units): RedirectResponse
+    {
+        $data = $request->validate([
+            'reason' => 'required|string|min:3|max:500',
+        ]);
+
+        $this->assertNotInUse($units);
+
+        $first = $units->first();
+        $modelName = $first->equipmentModel?->name;
+        $returned = $this->unitTags($units);
+
+        DB::transaction(function () use ($units) {
+            foreach ($units as $unit) {
+                $unit->update([
+                    'fleet_status' => Product::FLEET_SERVICE_HOLD,
+                    'is_active' => false,
+                ]);
+            }
+        });
+
+        AuditLog::record('service_hold.reopened', [
+            'purchase_order' => $first->purchase_order,
+            'line' => $first->purchaseOrderItem?->description,
+            'catalogue_model' => $modelName,
+            'units' => $returned,
+            'reason' => $data['reason'],
+        ], $request->user(), $first->business_id, $first);
+
+        $count = $units->count();
+
+        return redirect()
+            ->route('service-hold.index')
+            ->with('success', $count.' '.($count === 1 ? 'unit is' : 'units are').' back in service hold, ready to set up again.');
+    }
+
+    /**
+     * Equipment already promised to a customer cannot be pulled out of the
+     * bookable fleet: that would leave a live agreement or a reservation with
+     * nothing to hand over.
+     */
+    private function assertNotInUse(Collection $units): void
+    {
+        $productIds = $units->pluck('id')->all();
+
+        $onHire = RentalItem::query()
+            ->whereIn('product_id', $productIds)
+            ->whereHas('contract', fn ($query) => $query->whereNotIn('status', ['returned', 'cancelled']))
+            ->exists();
+
+        $reserved = Reservation::query()
+            ->blocking()
+            ->whereIn('product_id', $productIds)
+            ->exists();
+
+        if ($onHire || $reserved) {
+            throw ValidationException::withMessages([
+                'units' => 'A unit that is out on hire or held by a reservation cannot go back to service hold.',
+            ]);
+        }
     }
 
     private function validateSetup(Request $request): array
@@ -567,16 +668,51 @@ class ServiceHoldController extends Controller
 
     private function heldUnit(Request $request, Product $product): Product
     {
-        if ($request->user()->role !== 'super_admin'
-            && $product->business_id !== $request->user()->business_id) {
-            abort(404);
-        }
+        $this->assertTenant($request, $product->business_id);
 
         if (! $product->isRental() || ! $product->isInServiceHold()) {
             abort(404);
         }
 
         return $product;
+    }
+
+    /** A fleet unit that can be taken back to service hold for correction. */
+    private function committedUnit(Request $request, Product $product): Product
+    {
+        $this->assertTenant($request, $product->business_id);
+
+        if (! $product->isRental() || $product->isInServiceHold()) {
+            abort(404);
+        }
+
+        return $product;
+    }
+
+    /** The fleet units from one purchase order line. */
+    private function committedUnitsForLine(Request $request, PurchaseOrderItem $item): Collection
+    {
+        $order = $item->purchaseOrder;
+
+        if (! $order) {
+            abort(404);
+        }
+
+        $this->assertTenant($request, $order->business_id);
+
+        $units = Product::query()
+            ->where('business_id', $order->business_id)
+            ->where('purchase_order_item_id', $item->id)
+            ->where('product_type', 'rental')
+            ->where('fleet_status', '!=', Product::FLEET_SERVICE_HOLD)
+            ->orderBy('equipment_number')
+            ->get();
+
+        if ($units->isEmpty()) {
+            abort(404);
+        }
+
+        return $units;
     }
 
     /** The units still in service hold from one purchase order line. */
@@ -588,10 +724,7 @@ class ServiceHoldController extends Controller
             abort(404);
         }
 
-        if ($request->user()->role !== 'super_admin'
-            && $order->business_id !== $request->user()->business_id) {
-            abort(404);
-        }
+        $this->assertTenant($request, $order->business_id);
 
         $units = Product::query()
             ->where('business_id', $order->business_id)
@@ -606,6 +739,24 @@ class ServiceHoldController extends Controller
         }
 
         return $units;
+    }
+
+    /** Another tenant's records are invisible; a super admin may look at any. */
+    private function assertTenant(Request $request, int $businessId): void
+    {
+        if ($request->user()->role !== 'super_admin'
+            && $businessId !== $request->user()->business_id) {
+            abort(404);
+        }
+    }
+
+    /** The asset tags an audit entry keeps, so a later rename cannot rewrite history. */
+    private function unitTags(Collection $units): array
+    {
+        return $units->map(fn (Product $unit) => [
+            'equipment_number' => $unit->equipment_number,
+            'serial_number' => $unit->serial_number,
+        ])->values()->all();
     }
 
     private function businessId(Request $request): int

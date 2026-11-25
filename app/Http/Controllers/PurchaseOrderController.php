@@ -138,7 +138,7 @@ class PurchaseOrderController extends Controller
     public function show(Request $request, PurchaseOrder $purchaseOrder): View
     {
         $order = $this->tenantOrder($request, $purchaseOrder);
-        $order->load(['items.product']);
+        $order->load(['items.product', 'items.committedUnits']);
 
         $products = Product::query()
             ->where('business_id', $order->business_id)
