@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\Business;
 use App\Models\EquipmentModel;
 use App\Models\Product;
@@ -607,5 +608,153 @@ class ServiceHoldTest extends TestCase
             ->assertSee('Set up all 3')
             ->assertSee('4 units waiting')
             ->assertDontSee('Set up all 1');
+    }
+
+    public function test_committing_records_the_terms_and_the_person_who_applied_them(): void
+    {
+        $user = $this->tenantUser();
+        $unit = $this->heldUnit($user);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload())
+            ->assertSessionHasNoErrors();
+
+        $log = AuditLog::where('action', 'service_hold.committed')->sole();
+        $model = EquipmentModel::firstOrFail();
+
+        $this->assertSame($user->id, $log->user_id);
+        $this->assertSame($user->business_id, $log->business_id);
+        $this->assertSame('Equipment committed to fleet', $log->actionLabel());
+        $this->assertSame($model->id, $log->model_id);
+        $this->assertSame('Excavator', $log->details['catalogue_model']);
+        $this->assertSame('EQ-100', $log->details['units'][0]['equipment_number']);
+        $this->assertSame('CAT0320GC12345', $log->details['units'][0]['serial_number']);
+        $this->assertSame('450.00', $log->details['rental_price_day']);
+        $this->assertSame(48, $log->details['useful_life_months']);
+        $this->assertSame('4800.00', $log->details['salvage_value']);
+        $this->assertFalse($log->details['updated_model_defaults']);
+    }
+
+    public function test_a_held_unit_can_be_returned_and_its_line_is_owed_again(): void
+    {
+        $user = $this->tenantUser();
+        [$order, $item, $units] = $this->heldLine($user, 3);
+
+        $this->actingAs($user)
+            ->get(route('service-hold.return.form', $units[0]))
+            ->assertOk()
+            ->assertSee('Why is it going back?')
+            ->assertSee('Return 1 unit');
+
+        $this->actingAs($user)
+            ->post(route('service-hold.return', $units[0]), [
+                'reason' => 'Damaged on arrival — hydraulic leak',
+                'credit_note' => 'CN-991',
+                'resolution' => 'replacement',
+            ])
+            ->assertRedirect(route('service-hold.index'))
+            ->assertSessionHasNoErrors();
+
+        $this->assertNull(Product::find($units[0]->id));
+        $this->assertSame(2, $item->fresh()->quantity_received);
+        $this->assertSame(1, $item->fresh()->outstanding());
+        $this->assertSame(PurchaseOrder::STATUS_PARTIAL, $order->fresh()->status);
+
+        $log = AuditLog::where('action', 'service_hold.returned')->sole();
+
+        $this->assertSame($user->id, $log->user_id);
+        $this->assertSame('Damaged on arrival — hydraulic leak', $log->details['reason']);
+        $this->assertSame('CN-991', $log->details['credit_note']);
+        $this->assertSame('awaiting a replacement', $log->details['resolution']);
+        $this->assertSame('PO-R-0007', $log->details['purchase_order']);
+        $this->assertSame('PO-R-0007-1', $log->details['units'][0]['equipment_number']);
+        $this->assertSame($item->id, $log->model_id);
+    }
+
+    public function test_a_whole_line_returns_only_the_units_still_in_hold(): void
+    {
+        $user = $this->tenantUser();
+        [$order, $item, $units] = $this->heldLine($user, 3);
+        $order->refreshStatus();
+
+        // One unit is already a fleet asset: a line return must leave it alone.
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $units[0]), $this->commitPayload(['equipment_number' => 'EQ-KEPT']))
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($user)
+            ->get(route('service-hold.line.return.form', $item))
+            ->assertOk()
+            ->assertSee('Return 2 units');
+
+        $this->actingAs($user)
+            ->post(route('service-hold.line.return', $item), [
+                'reason' => 'Not as ordered',
+                'credit_note' => 'CN-7',
+                'resolution' => 'credit',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(Product::FLEET_ACTIVE, $units[0]->fresh()->fleet_status);
+        $this->assertNull(Product::find($units[1]->id));
+        $this->assertNull(Product::find($units[2]->id));
+
+        // A credit note leaves the receipt standing, so the order stays received.
+        $this->assertSame(3, $item->fresh()->quantity_received);
+        $this->assertSame(PurchaseOrder::STATUS_RECEIVED, $order->fresh()->status);
+
+        $log = AuditLog::where('action', 'service_hold.returned')->sole();
+        $this->assertCount(2, $log->details['units']);
+        $this->assertSame('credit note only', $log->details['resolution']);
+    }
+
+    public function test_returning_requires_a_reason_and_a_resolution(): void
+    {
+        $user = $this->tenantUser();
+        [, , $units] = $this->heldLine($user, 2);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.return', $units[0]), [])
+            ->assertSessionHasErrors(['reason', 'resolution']);
+
+        $this->assertNotNull(Product::find($units[0]->id));
+        $this->assertSame(0, AuditLog::where('action', 'service_hold.returned')->count());
+    }
+
+    public function test_clerks_and_other_tenants_cannot_return_held_units(): void
+    {
+        $user = $this->tenantUser();
+        [, $item, $units] = $this->heldLine($user, 2);
+
+        $clerk = $this->staff($user, 'clerk', 'clerk@tenant.test');
+
+        $this->actingAs($clerk)->get(route('service-hold.return.form', $units[0]))->assertForbidden();
+        $this->actingAs($clerk)
+            ->post(route('service-hold.line.return', $item), [
+                'reason' => 'Wrong item',
+                'resolution' => 'replacement',
+            ])
+            ->assertForbidden();
+
+        $intruder = $this->tenantUser('intruder@tenant.test');
+
+        $this->actingAs($intruder)->get(route('service-hold.return.form', $units[0]))->assertNotFound();
+        $this->actingAs($intruder)
+            ->post(route('service-hold.line.return', $item), [
+                'reason' => 'Wrong item',
+                'resolution' => 'replacement',
+            ])
+            ->assertNotFound();
+
+        // A committed unit is a fleet asset, not something sitting in the hold.
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $units[0]), $this->commitPayload())
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($user)
+            ->get(route('service-hold.return.form', $units[0]))
+            ->assertNotFound();
+
+        $this->assertSame(2, Product::where('purchase_order_item_id', $item->id)->count());
     }
 }

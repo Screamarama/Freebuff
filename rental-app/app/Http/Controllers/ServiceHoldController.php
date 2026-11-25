@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\EquipmentModel;
 use App\Models\Product;
 use App\Models\PurchaseOrderItem;
@@ -10,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
@@ -186,6 +188,8 @@ class ServiceHoldController extends Controller
             $updateDefaults,
         );
 
+        $this->auditCommit($request, collect([$unit]), $model, $data['used_sale_price'] ?? null, $updateDefaults);
+
         $message = $unit->equipment_number.' committed to the rental fleet.';
 
         // Say so when the unit adopted the catalogue's terms instead of the
@@ -259,6 +263,8 @@ class ServiceHoldController extends Controller
 
         $model = $this->commitUnits($units, $data, $perUnit, $updateDefaults);
 
+        $this->auditCommit($request, $units, $model, $data['used_sale_price'] ?? null, $updateDefaults);
+
         $count = $units->count();
 
         $message = $count.' '.($count === 1 ? 'unit' : 'units').' committed to the rental fleet.';
@@ -269,6 +275,146 @@ class ServiceHoldController extends Controller
 
         if ($wasRetired) {
             $message .= ' '.$model->name.' was retired and is active in the catalogue again.';
+        }
+
+        return redirect()
+            ->route('service-hold.index')
+            ->with('success', $message);
+    }
+
+    /**
+     * A commit decides rates, depreciation and the catalogue entry a unit joins,
+     * so the terms actually applied are kept with who applied them.
+     */
+    private function auditCommit(
+        Request $request,
+        Collection $units,
+        EquipmentModel $model,
+        ?string $usedSalePrice,
+        bool $updateDefaults,
+    ): void {
+        $first = $units->first();
+
+        AuditLog::record('service_hold.committed', [
+            'purchase_order' => $first->purchase_order,
+            'line' => $first->purchaseOrderItem?->description,
+            'catalogue_model' => $model->name,
+            'units' => $units->map(fn (Product $unit) => [
+                'equipment_number' => $unit->equipment_number,
+                'serial_number' => $unit->serial_number,
+            ])->values()->all(),
+            'rental_price_hour' => $model->rental_price_hour,
+            'rental_price_day' => $model->rental_price_day,
+            'rental_price_week' => $model->rental_price_week,
+            'rental_price_month' => $model->rental_price_month,
+            'deposit_amount' => $model->deposit_amount,
+            'useful_life_months' => $model->useful_life_months,
+            'salvage_value' => $model->salvage_value,
+            'used_sale_price' => $usedSalePrice,
+            'depreciation_started_on' => $first->depreciation_started_on?->toDateString(),
+            'updated_model_defaults' => $updateDefaults,
+        ], $request->user(), $first->business_id, $model);
+    }
+
+    /** Ask why a held unit (or a whole line's held units) is going back. */
+    public function showReturn(Request $request, Product $product): View
+    {
+        $unit = $this->heldUnit($request, $product);
+
+        return $this->returnView(
+            collect([$unit]),
+            'Return '.($unit->equipment_number ?: 'this unit'),
+            route('service-hold.return', $unit),
+        );
+    }
+
+    public function showReturnLine(Request $request, PurchaseOrderItem $item): View
+    {
+        $units = $this->heldUnitsForLine($request, $item);
+
+        return $this->returnView(
+            $units,
+            'Return '.$units->count().' '.Str::plural('unit', $units->count()),
+            route('service-hold.line.return', $item),
+        );
+    }
+
+    private function returnView(Collection $units, string $heading, string $action): View
+    {
+        return view('service-hold.return', [
+            'units' => $units,
+            'purchaseOrder' => $units->first()->purchaseOrderItem?->purchaseOrder?->number
+                ?: $units->first()->purchase_order,
+            'action' => $action,
+            'heading' => $heading,
+        ]);
+    }
+
+    public function returnUnit(Request $request, Product $product): RedirectResponse
+    {
+        return $this->sendBack($request, collect([$this->heldUnit($request, $product)]));
+    }
+
+    public function returnLine(Request $request, PurchaseOrderItem $item): RedirectResponse
+    {
+        return $this->sendBack($request, $this->heldUnitsForLine($request, $item));
+    }
+
+    /**
+     * Take held units out of service hold: a damaged or wrong delivery never
+     * becomes a fleet asset. A replacement puts the quantity back on the order as
+     * outstanding; a credit note leaves the line as received.
+     */
+    private function sendBack(Request $request, Collection $units): RedirectResponse
+    {
+        $data = $request->validate([
+            'reason' => 'required|string|min:3|max:500',
+            'credit_note' => 'nullable|string|max:100',
+            'resolution' => 'required|in:replacement,credit',
+        ]);
+
+        $first = $units->first();
+        $item = $first->purchaseOrderItem;
+        $number = $item?->purchaseOrder?->number ?: $first->purchase_order;
+        $replace = $data['resolution'] === 'replacement';
+        $count = $units->count();
+
+        $returned = $units->map(fn (Product $unit) => [
+            'equipment_number' => $unit->equipment_number,
+            'serial_number' => $unit->serial_number,
+        ])->values()->all();
+
+        DB::transaction(function () use ($units, $item, $replace, $count) {
+            foreach ($units as $unit) {
+                $unit->delete();
+            }
+
+            // Back to outstanding so a replacement can be received onto the
+            // same line; with a credit note the receipt stands as it was.
+            if ($replace && $item) {
+                $item->forceFill([
+                    'quantity_received' => max(0, $item->quantity_received - $count),
+                ])->save();
+
+                $item->purchaseOrder?->refreshStatus();
+            }
+        });
+
+        AuditLog::record('service_hold.returned', [
+            'purchase_order' => $number,
+            'line' => $item?->description,
+            'units' => $returned,
+            'reason' => $data['reason'],
+            'credit_note' => $data['credit_note'] ?? null,
+            'resolution' => $replace ? 'awaiting a replacement' : 'credit note only',
+        ], $request->user(), $first->business_id, $item);
+
+        $message = $count.' '.($count === 1 ? 'unit' : 'units').' returned to the supplier.';
+
+        if ($item && $replace) {
+            $message .= ' '.($number ?: 'The purchase order').' is owed them again.';
+        } elseif ($item && filled($data['credit_note'] ?? null)) {
+            $message .= ' Credit note '.$data['credit_note'].' is on file; '.($number ?: 'the order').' stays received.';
         }
 
         return redirect()

@@ -181,8 +181,16 @@
                                             @if ($log->changeSummary())
                                                 <div class="mt-1 text-gray-500 text-xs">{{ $log->changeSummary() }}</div>
                                             @endif
-                                            @if ($log->action === 'agreement.cancelled' && ($log->details['reason'] ?? null))
+                                            @if ($log->details['reason'] ?? null)
                                                 <div class="mt-1 text-gray-500 text-xs">Reason: {{ $log->details['reason'] }}</div>
+                                            @endif
+                                            @if ($log->details['purchase_order'] ?? null)
+                                                <div class="mt-1 text-gray-500 text-xs">
+                                                    {{ $log->details['purchase_order'] }}
+                                                    @if (is_array($log->details['units'] ?? null))
+                                                        · {{ count($log->details['units']) }} {{ \Illuminate\Support\Str::plural('unit', count($log->details['units'])) }}
+                                                    @endif
+                                                </div>
                                             @endif
                                             @if ($log->subjectLabel())
                                                 <div class="mt-1 text-gray-500 text-xs">{{ $log->subjectLabel() }}</div>

@@ -40,6 +40,9 @@ class AuditLog extends Model
         'payment.refunded' => 'Credit refunded',
         'account.payment_recorded' => 'Account payment taken',
         'account.payment_voided' => 'Account payment voided',
+        'purchase_order.received' => 'Purchase order received',
+        'service_hold.committed' => 'Equipment committed to fleet',
+        'service_hold.returned' => 'Held equipment returned to supplier',
     ];
 
     protected $fillable = [
@@ -128,8 +131,8 @@ class AuditLog extends Model
     public function actionTone(): string
     {
         return match ($this->action) {
-            'tenant.suspended', 'tenant.user.deactivated', 'payment.voided', 'customer.tax_exemption_updated' => 'danger',
-            'tenant.activated', 'tenant.user.activated' => 'success',
+            'tenant.suspended', 'tenant.user.deactivated', 'payment.voided', 'customer.tax_exemption_updated', 'service_hold.returned' => 'danger',
+            'tenant.activated', 'tenant.user.activated', 'purchase_order.received', 'service_hold.committed' => 'success',
             default => 'neutral',
         };
     }
