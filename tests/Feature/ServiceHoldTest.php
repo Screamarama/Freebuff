@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Business;
 use App\Models\EquipmentModel;
 use App\Models\Product;
+use App\Models\PurchaseOrder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -413,5 +414,198 @@ class ServiceHoldTest extends TestCase
         ]);
 
         $this->actingAs($user)->get(route('service-hold.setup', $unit))->assertNotFound();
+    }
+
+    /** A rental purchase order line with its units waiting in service hold. */
+    private function heldLine(User $user, int $quantity = 3): array
+    {
+        $order = PurchaseOrder::create([
+            'business_id' => $user->business_id,
+            'type' => PurchaseOrder::TYPE_RENTAL,
+            'number' => 'PO-R-0007',
+            'supplier_name' => 'Line Supplier',
+            'status' => PurchaseOrder::STATUS_PARTIAL,
+            'ordered_on' => '2026-11-20',
+        ]);
+
+        $item = $order->items()->create([
+            'description' => 'CAT 320 GC excavator',
+            'quantity_ordered' => $quantity,
+            'quantity_received' => $quantity,
+            'unit_cost' => 24000,
+        ]);
+
+        $units = collect();
+
+        for ($i = 1; $i <= $quantity; $i++) {
+            $units->push(Product::create([
+                'business_id' => $user->business_id,
+                'purchase_order_item_id' => $item->id,
+                'product_type' => 'rental',
+                'fleet_status' => Product::FLEET_SERVICE_HOLD,
+                'is_active' => false,
+                'equipment_number' => 'PO-R-0007-'.$i,
+                'name' => 'CAT 320 GC excavator',
+                'cost_price' => 24000,
+                'purchase_order' => 'PO-R-0007',
+                'purchase_date' => '2026-11-25',
+                'stock_quantity' => 1,
+            ]));
+        }
+
+        return [$order, $item, $units];
+    }
+
+    private function linePayload($units, array $overrides = []): array
+    {
+        $payload = $this->commitPayload($overrides);
+        unset($payload['equipment_number'], $payload['serial_number']);
+
+        $payload['units'] = $units->values()->mapWithKeys(fn (Product $unit, int $index) => [
+            $unit->id => [
+                'equipment_number' => 'EQ-'.($index + 1),
+                'serial_number' => 'SN-'.($index + 1),
+            ],
+        ])->all();
+
+        return $payload;
+    }
+
+    public function test_a_whole_purchase_order_line_is_committed_in_one_go(): void
+    {
+        $user = $this->tenantUser();
+        [, $item, $units] = $this->heldLine($user);
+
+        $this->actingAs($user)
+            ->get(route('service-hold.line.setup', $item))
+            ->assertOk()
+            ->assertSee('Set up 3 units')
+            ->assertSee('PO-R-0007-1')
+            ->assertSee('Commit 3 units');
+
+        $this->actingAs($user)
+            ->post(route('service-hold.line.commit', $item), $this->linePayload($units))
+            ->assertRedirect(route('service-hold.index'))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(1, EquipmentModel::query()->count());
+        $model = EquipmentModel::query()->firstOrFail();
+
+        foreach ($units->values() as $index => $unit) {
+            $unit->refresh();
+
+            $this->assertSame(Product::FLEET_ACTIVE, $unit->fleet_status);
+            $this->assertTrue($unit->is_active);
+            $this->assertSame($model->id, $unit->equipment_model_id);
+            $this->assertSame('EQ-'.($index + 1), $unit->equipment_number);
+            $this->assertSame('SN-'.($index + 1), $unit->serial_number);
+            $this->assertSame('450.00', $unit->rental_price_day);
+            $this->assertSame('18000.00', $unit->used_sale_price);
+            $this->assertSame('2026-11-25', $unit->depreciation_started_on->format('Y-m-d'));
+        }
+    }
+
+    public function test_the_line_page_names_the_catalogue_model_the_units_will_join(): void
+    {
+        $user = $this->tenantUser();
+        [, $item] = $this->heldLine($user);
+
+        // The line only carries a description, so it matches a catalogue entry
+        // that has no make or model number yet.
+        EquipmentModel::create([
+            'business_id' => $user->business_id,
+            'name' => 'CAT 320 GC excavator',
+            'rental_price_day' => 500,
+            'useful_life_months' => 60,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('service-hold.line.setup', $item))
+            ->assertOk()
+            ->assertSee('Joins existing model')
+            ->assertSee('CAT 320 GC excavator')
+            ->assertSee('Update this model');
+    }
+
+    public function test_a_line_commit_needs_a_free_tag_for_every_unit(): void
+    {
+        $user = $this->tenantUser();
+        [, $item, $units] = $this->heldLine($user, 2);
+
+        $payload = $this->linePayload($units);
+        $payload['units'][$units[1]->id]['equipment_number'] = 'EQ-1';
+
+        $this->actingAs($user)
+            ->post(route('service-hold.line.commit', $item), $payload)
+            ->assertSessionHasErrors();
+
+        $this->assertSame(0, EquipmentModel::query()->count());
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $units[1]->fresh()->fleet_status);
+    }
+
+    public function test_a_line_commit_leaves_units_already_out_of_hold_alone(): void
+    {
+        $user = $this->tenantUser();
+        [, $item, $units] = $this->heldLine($user);
+
+        $this->actingAs($user)->post(route('service-hold.commit', $units[0]), $this->commitPayload([
+            'equipment_number' => 'EQ-FIRST',
+        ]));
+
+        $this->actingAs($user)
+            ->get(route('service-hold.line.setup', $item))
+            ->assertOk()
+            ->assertSee('Set up 2 units');
+
+        $remaining = $units->slice(1)->values();
+
+        $this->actingAs($user)
+            ->post(route('service-hold.line.commit', $item), $this->linePayload($remaining))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('EQ-FIRST', $units[0]->fresh()->equipment_number);
+        $this->assertSame(Product::FLEET_ACTIVE, $units[2]->fresh()->fleet_status);
+    }
+
+    public function test_clerks_and_other_tenants_cannot_set_up_a_line(): void
+    {
+        $user = $this->tenantUser();
+        [, $item, $units] = $this->heldLine($user);
+
+        $clerk = $this->staff($user, 'clerk', 'clerk@tenant.test');
+
+        $this->actingAs($clerk)
+            ->get(route('service-hold.line.setup', $item))
+            ->assertForbidden();
+        $this->actingAs($clerk)
+            ->post(route('service-hold.line.commit', $item), $this->linePayload($units))
+            ->assertForbidden();
+
+        $intruder = $this->tenantUser('intruder@tenant.test');
+
+        $this->actingAs($intruder)
+            ->get(route('service-hold.line.setup', $item))
+            ->assertNotFound();
+        $this->actingAs($intruder)
+            ->post(route('service-hold.line.commit', $item), $this->linePayload($units))
+            ->assertNotFound();
+
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $units[0]->fresh()->fleet_status);
+    }
+
+    public function test_the_hold_groups_units_by_line_and_offers_the_bulk_action(): void
+    {
+        $user = $this->tenantUser();
+        $this->heldLine($user, 3);
+
+        $this->heldUnit($user, ['equipment_number' => 'PO-R-0001-9']);
+
+        $this->actingAs($user)
+            ->get(route('service-hold.index'))
+            ->assertOk()
+            ->assertSee('Set up all 3')
+            ->assertSee('4 units waiting')
+            ->assertDontSee('Set up all 1');
     }
 }

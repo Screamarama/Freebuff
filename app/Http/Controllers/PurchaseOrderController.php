@@ -349,6 +349,7 @@ class PurchaseOrderController extends Controller
 
             Product::create([
                 'business_id' => $order->business_id,
+                'purchase_order_item_id' => $item->id,
                 'product_type' => 'rental',
                 'fleet_status' => Product::FLEET_SERVICE_HOLD,
                 'is_active' => false,
