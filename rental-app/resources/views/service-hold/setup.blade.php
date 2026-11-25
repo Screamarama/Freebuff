@@ -113,10 +113,14 @@
                                  data-empty="No catalogue model matches yet — this unit will create a new one."
                                  data-joining="Joins existing model:"
                                  data-keep="its catalogue rates and depreciation terms apply"
-                                 data-update="its defaults will be updated from the values below.">
+                                 data-update="its defaults will be updated from the values below."
+                                 data-retired="This model is retired; committing returns it to the catalogue.">
                                 @if ($matching)
                                     Joins existing model: {{ $matching->label() }} ({{ $matching->name }})
                                     — {{ $updateDefaults ? 'its defaults will be updated from the values below.' : 'its catalogue rates and depreciation terms apply — '.$matchingSummary.'.' }}
+                                    @unless ($matching->is_active)
+                                        This model is retired; committing returns it to the catalogue.
+                                    @endunless
                                 @else
                                     No catalogue model matches yet — this unit will create a new one.
                                 @endif
@@ -307,7 +311,8 @@
                 const update = checkbox.checked;
 
                 notice.textContent = `${notice.dataset.joining} ${match.label} (${match.name}) — `
-                    + (update ? notice.dataset.update : `${notice.dataset.keep} — ${match.summary}.`);
+                    + (update ? notice.dataset.update : `${notice.dataset.keep} — ${match.summary}.`)
+                    + (match.active ? '' : ` ${notice.dataset.retired}`);
                 notice.className = 'rounded-md border px-3 py-2 text-sm border-indigo-200 bg-indigo-50 text-indigo-900';
                 checkboxWrap.classList.remove('hidden');
 

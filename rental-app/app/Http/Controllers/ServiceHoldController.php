@@ -57,6 +57,7 @@ class ServiceHoldController extends Controller
                     'model_number' => $model->model_number,
                     'label' => $model->label(),
                     'summary' => $this->rateSummary($model, $currency),
+                    'active' => (bool) $model->is_active,
                     'rental_price_hour' => $model->rental_price_hour,
                     'rental_price_day' => $model->rental_price_day,
                     'rental_price_week' => $model->rental_price_week,
@@ -136,9 +137,16 @@ class ServiceHoldController extends Controller
 
         $joined = $this->matchingModel($unit, $data);
         $updateDefaults = $request->boolean('update_model_defaults');
+        $wasRetired = $joined !== null && ! $joined->is_active;
 
         $model = DB::transaction(function () use ($unit, $data, $updateDefaults) {
             $model = $this->catalogueEntry($unit, $data, $updateDefaults);
+
+            // Joining a retired model puts it back in service: it is on the
+            // fleet again, so the catalogue entry must not stay retired.
+            if (! $model->is_active) {
+                $model->update(['is_active' => true]);
+            }
 
             $unit->update([
                 'equipment_model_id' => $model->id,
@@ -172,6 +180,10 @@ class ServiceHoldController extends Controller
         // ones typed on the form, so nothing about the rates is a surprise.
         if ($joined && ! $updateDefaults) {
             $message .= ' It uses '.$model->name."'s existing catalogue rates and depreciation defaults.";
+        }
+
+        if ($wasRetired) {
+            $message .= ' '.$model->name.' was retired and is active in the catalogue again.';
         }
 
         return redirect()
