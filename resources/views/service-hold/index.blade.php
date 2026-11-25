@@ -57,10 +57,16 @@
                                         </p>
                                     </div>
                                     @if ($bulk && $canCommit)
-                                        <a href="{{ route('service-hold.line.setup', $line['item']) }}"
-                                           class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
-                                            Set up all {{ $lineUnits->count() }}
-                                        </a>
+                                        <div class="flex items-center gap-4">
+                                            <a href="{{ route('service-hold.line.return.form', $line['item']) }}"
+                                               class="text-xs text-gray-500 hover:text-red-700">
+                                                Return all
+                                            </a>
+                                            <a href="{{ route('service-hold.line.setup', $line['item']) }}"
+                                               class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
+                                                Set up all {{ $lineUnits->count() }}
+                                            </a>
+                                        </div>
                                     @elseif ($bulk)
                                         <span class="text-xs text-gray-400">Admins and managers only</span>
                                     @endif
@@ -96,10 +102,16 @@
                                                     </td>
                                                     <td class="px-4 py-3 text-right">
                                                         @if ($canCommit)
-                                                            <a href="{{ route('service-hold.setup', $unit) }}"
-                                                               class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
-                                                                Set up &amp; commit
-                                                            </a>
+                                                            <div class="flex items-center justify-end gap-4">
+                                                                <a href="{{ route('service-hold.return.form', $unit) }}"
+                                                                   class="text-xs text-gray-500 hover:text-red-700">
+                                                                    Return
+                                                                </a>
+                                                                <a href="{{ route('service-hold.setup', $unit) }}"
+                                                                   class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
+                                                                    Set up &amp; commit
+                                                                </a>
+                                                            </div>
                                                         @else
                                                             <span class="text-xs text-gray-400">Admins and managers only</span>
                                                         @endif

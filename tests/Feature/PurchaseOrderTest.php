@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditLog;
 use App\Models\Business;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
@@ -293,5 +294,32 @@ class PurchaseOrderTest extends TestCase
             ->assertSessionHasErrors('items.0.description');
 
         $this->assertSame(0, PurchaseOrder::query()->count());
+    }
+
+    public function test_receiving_records_the_delivery_in_the_audit_log(): void
+    {
+        $user = $this->tenantUser();
+        $order = $this->order($user, 'rental', 'CAT 320 GC excavator', 3, 18000);
+        $item = $order->items()->firstOrFail();
+
+        $this->actingAs($user)
+            ->post(route('purchase-orders.receive', $order), [
+                'quantities' => [$item->id => 2],
+                'received_on' => '2026-11-25',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $log = AuditLog::where('action', 'purchase_order.received')->sole();
+
+        $this->assertSame($user->id, $log->user_id);
+        $this->assertSame($user->business_id, $log->business_id);
+        $this->assertSame('Purchase order received', $log->actionLabel());
+        $this->assertSame($order->id, $log->model_id);
+        $this->assertSame('PO-R-0001', $log->details['purchase_order']);
+        $this->assertSame('2026-11-25', $log->details['received_on']);
+        $this->assertSame(2, $log->details['total_units']);
+        $this->assertSame('CAT 320 GC excavator', $log->details['lines'][0]['line']);
+        $this->assertSame(2, $log->details['lines'][0]['quantity']);
+        $this->assertEquals(18000.0, $log->details['lines'][0]['unit_cost']);
     }
 }

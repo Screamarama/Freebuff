@@ -41,11 +41,23 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
     Route::post('/service-hold/line/{item}/commit', [\App\Http\Controllers\ServiceHoldController::class, 'commitLine'])
         ->name('service-hold.line.commit')
         ->middleware('role:super_admin,admin,manager');
+    Route::get('/service-hold/line/{item}/return', [\App\Http\Controllers\ServiceHoldController::class, 'showReturnLine'])
+        ->name('service-hold.line.return.form')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/service-hold/line/{item}/return', [\App\Http\Controllers\ServiceHoldController::class, 'returnLine'])
+        ->name('service-hold.line.return')
+        ->middleware('role:super_admin,admin,manager');
     Route::get('/service-hold/{product}/setup', [\App\Http\Controllers\ServiceHoldController::class, 'setup'])
         ->name('service-hold.setup')
         ->middleware('role:super_admin,admin,manager');
     Route::post('/service-hold/{product}/commit', [\App\Http\Controllers\ServiceHoldController::class, 'commit'])
         ->name('service-hold.commit')
+        ->middleware('role:super_admin,admin,manager');
+    Route::get('/service-hold/{product}/return', [\App\Http\Controllers\ServiceHoldController::class, 'showReturn'])
+        ->name('service-hold.return.form')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/service-hold/{product}/return', [\App\Http\Controllers\ServiceHoldController::class, 'returnUnit'])
+        ->name('service-hold.return')
         ->middleware('role:super_admin,admin,manager');
     Route::resource('customers', CustomerController::class);
     Route::get('/customers/create/cancel', [CustomerController::class, 'cancelCreate'])->name('customers.create.cancel');

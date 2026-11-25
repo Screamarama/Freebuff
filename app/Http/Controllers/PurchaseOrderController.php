@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Product;
 use App\Models\PurchaseOrder;
 use App\Models\PurchaseOrderItem;
@@ -232,7 +233,9 @@ class PurchaseOrderController extends Controller
             ? Carbon::parse($data['received_on'])
             : Carbon::today();
 
-        DB::transaction(function () use ($order, $data, $receivedOn) {
+        $receivedLines = [];
+
+        DB::transaction(function () use ($order, $data, $receivedOn, &$receivedLines) {
             $order->load('items.product');
 
             $receivedTotal = 0;
@@ -265,6 +268,12 @@ class PurchaseOrderController extends Controller
                 }
 
                 $receivedTotal += $quantity;
+
+                $receivedLines[] = [
+                    'line' => $item->label(),
+                    'quantity' => $quantity,
+                    'unit_cost' => (float) $item->unit_cost,
+                ];
             }
 
             if ($receivedTotal === 0) {
@@ -273,6 +282,16 @@ class PurchaseOrderController extends Controller
 
             $order->refreshStatus();
         });
+
+        // What arrived, when and against which order is a stock movement worth
+        // keeping: the quantity counters alone cannot say who took delivery.
+        AuditLog::record('purchase_order.received', [
+            'purchase_order' => $order->number,
+            'supplier' => $order->supplier_name,
+            'received_on' => $receivedOn->toDateString(),
+            'lines' => $receivedLines,
+            'total_units' => array_sum(array_column($receivedLines, 'quantity')),
+        ], $request->user(), $order->business_id, $order);
 
         // Rental equipment is not bookable yet: it waits in service hold to be
         // priced and committed, so send the user straight there.
