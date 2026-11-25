@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\EquipmentModel;
+use App\Models\Product;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -53,7 +56,16 @@ class EquipmentModelController extends Controller
     {
         $this->ensureSameTenant($request, $equipmentModel);
 
-        return view('equipment-models.edit', ['model' => $equipmentModel]);
+        $units = $equipmentModel->products()
+            ->where('fleet_status', Product::FLEET_ACTIVE)
+            ->orderBy('equipment_number')
+            ->get();
+
+        return view('equipment-models.edit', [
+            'model' => $equipmentModel,
+            'units' => $units,
+            'differing' => $units->filter(fn (Product $unit) => $this->termsDiffer($unit, $equipmentModel)),
+        ]);
     }
 
     public function update(Request $request, EquipmentModel $equipmentModel): RedirectResponse
@@ -67,7 +79,79 @@ class EquipmentModelController extends Controller
 
         return redirect()
             ->route('equipment-models.index')
-            ->with('success', 'Equipment model updated. Existing units keep the details they were bought with.');
+            ->with('success', 'Equipment model updated. Existing units keep the details they were bought with; apply the new terms from the units panel when they should follow.');
+    }
+
+    /**
+     * Copy the model's current rates and depreciation terms onto the fleet units
+     * still carrying older ones, so the catalogue governs what is hired out.
+     */
+    public function applyDefaults(Request $request, EquipmentModel $equipmentModel): RedirectResponse
+    {
+        $this->ensureSameTenant($request, $equipmentModel);
+
+        $units = $equipmentModel->products()
+            ->where('fleet_status', Product::FLEET_ACTIVE)
+            ->orderBy('equipment_number')
+            ->get()
+            ->filter(fn (Product $unit) => $this->termsDiffer($unit, $equipmentModel))
+            ->values();
+
+        if ($units->isEmpty()) {
+            return back()->with('success', 'Every unit already uses these terms.');
+        }
+
+        DB::transaction(function () use ($units, $equipmentModel) {
+            foreach ($units as $unit) {
+                $unit->update([
+                    'rental_price_hour' => $equipmentModel->rental_price_hour,
+                    'rental_price_day' => $equipmentModel->rental_price_day,
+                    'rental_price_week' => $equipmentModel->rental_price_week,
+                    'rental_price_month' => $equipmentModel->rental_price_month,
+                    'deposit_amount' => $equipmentModel->deposit_amount,
+                    'useful_life_months' => $equipmentModel->useful_life_months,
+                    'salvage_value' => $equipmentModel->salvage_value,
+                ]);
+            }
+        });
+
+        AuditLog::record('equipment_model.defaults_applied', [
+            'catalogue_model' => $equipmentModel->name,
+            'units' => $units->pluck('equipment_number')->values()->all(),
+            'rental_price_day' => $equipmentModel->rental_price_day,
+            'useful_life_months' => $equipmentModel->useful_life_months,
+            'salvage_value' => $equipmentModel->salvage_value,
+        ], $request->user(), $equipmentModel->business_id, $equipmentModel);
+
+        $count = $units->count();
+
+        return back()->with(
+            'success',
+            $count.' '.($count === 1 ? 'unit now uses' : 'units now use')." this model's terms."
+        );
+    }
+
+    /** Whether a unit still carries a rate or depreciation term the model does not. */
+    private function termsDiffer(Product $unit, EquipmentModel $model): bool
+    {
+        foreach (['rental_price_hour', 'rental_price_day', 'rental_price_week', 'rental_price_month',
+            'deposit_amount', 'useful_life_months', 'salvage_value'] as $field) {
+            if (! $this->sameNumber($unit->{$field}, $model->{$field})) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Nulls only match nulls; values are compared as numbers. */
+    private function sameNumber(mixed $left, mixed $right): bool
+    {
+        if ($left === null || $right === null) {
+            return $left === $right;
+        }
+
+        return (float) $left === (float) $right;
     }
 
     /** Retire a model without touching the units already in the fleet. */

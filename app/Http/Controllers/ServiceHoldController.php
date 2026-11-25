@@ -177,22 +177,21 @@ class ServiceHoldController extends Controller
             'serial_number' => 'nullable|max:150',
         ]);
 
-        $this->assertSalvageWithinCost(collect([$unit]), $data);
+        $units = collect([$unit]);
+        $bookBefore = $this->bookValueTotal($units);
+
+        $this->assertSalvageWithinCost($units, $data);
 
         $joined = $this->matchingModel($unit, $data);
         $updateDefaults = $request->boolean('update_model_defaults');
         $wasRetired = $joined !== null && ! $joined->is_active;
 
-        $model = $this->commitUnits(
-            collect([$unit]),
-            $data,
-            [$unit->id => $unitData],
-            $updateDefaults,
-        );
+        $model = $this->commitUnits($units, $data, [$unit->id => $unitData], $updateDefaults);
 
-        $this->auditCommit($request, collect([$unit]), $model, $data['used_sale_price'] ?? null, $updateDefaults);
+        $this->auditCommit($request, $units, $model, $data['used_sale_price'] ?? null, $updateDefaults, $bookBefore);
 
-        $message = $unit->equipment_number.' committed to the rental fleet.';
+        $message = $unit->equipment_number.' committed to the rental fleet.'
+            .$this->bookValueChange($bookBefore, $this->bookValueTotal($units), $unit->business?->currency);
 
         // Say so when the unit adopted the catalogue's terms instead of the
         // ones typed on the form, so nothing about the rates is a surprise.
@@ -216,6 +215,7 @@ class ServiceHoldController extends Controller
     public function commitLine(Request $request, PurchaseOrderItem $item): RedirectResponse
     {
         $units = $this->heldUnitsForLine($request, $item);
+        $bookBefore = $this->bookValueTotal($units);
 
         $data = $this->validateSetup($request);
 
@@ -265,11 +265,12 @@ class ServiceHoldController extends Controller
 
         $model = $this->commitUnits($units, $data, $perUnit, $updateDefaults);
 
-        $this->auditCommit($request, $units, $model, $data['used_sale_price'] ?? null, $updateDefaults);
+        $this->auditCommit($request, $units, $model, $data['used_sale_price'] ?? null, $updateDefaults, $bookBefore);
 
         $count = $units->count();
 
-        $message = $count.' '.($count === 1 ? 'unit' : 'units').' committed to the rental fleet.';
+        $message = $count.' '.($count === 1 ? 'unit' : 'units').' committed to the rental fleet.'
+            .$this->bookValueChange($bookBefore, $this->bookValueTotal($units), $units->first()->business?->currency);
 
         if ($joined && ! $updateDefaults) {
             $message .= ' They use '.$model->name."'s existing catalogue rates and depreciation defaults.";
@@ -294,6 +295,7 @@ class ServiceHoldController extends Controller
         EquipmentModel $model,
         ?string $usedSalePrice,
         bool $updateDefaults,
+        ?float $bookValueBefore,
     ): void {
         $first = $units->first();
 
@@ -311,6 +313,8 @@ class ServiceHoldController extends Controller
             'salvage_value' => $model->salvage_value,
             'used_sale_price' => $usedSalePrice,
             'depreciation_started_on' => $first->depreciation_started_on?->toDateString(),
+            'book_value_before' => $bookValueBefore,
+            'book_value_after' => $this->bookValueTotal($units),
             'updated_model_defaults' => $updateDefaults,
         ], $request->user(), $first->business_id, $model);
     }
@@ -521,6 +525,28 @@ class ServiceHoldController extends Controller
                 'units' => 'A unit that is out on hire or held by a reservation cannot go back to service hold.',
             ]);
         }
+    }
+
+    /** Book value today across units, or null if any unit has no terms to depreciate. */
+    private function bookValueTotal(Collection $units): ?float
+    {
+        $values = $units->map(fn (Product $unit) => $unit->bookValue());
+
+        if ($values->contains(fn ($value) => $value === null)) {
+            return null;
+        }
+
+        return round((float) $values->sum(), 2);
+    }
+
+    /** " Book value $19,200.00 → $18,000.00." when a commit moves it. */
+    private function bookValueChange(?float $before, ?float $after, ?string $currency): string
+    {
+        if ($before === null || $after === null || abs($before - $after) < 0.01) {
+            return '';
+        }
+
+        return ' Book value '.Money::format($before, $currency).' → '.Money::format($after, $currency).'.';
     }
 
     private function validateSetup(Request $request): array
