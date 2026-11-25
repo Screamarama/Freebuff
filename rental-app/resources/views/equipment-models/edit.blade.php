@@ -29,21 +29,49 @@
             </div>
 
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
-                <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Units of this model</h3>
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Units in service</h3>
+                    @if ($units->isNotEmpty())
+                        <span class="text-xs {{ $differing->isEmpty() ? 'text-gray-500' : 'text-amber-700' }}">
+                            @if ($differing->isEmpty())
+                                All {{ $units->count() }} use these terms
+                            @else
+                                {{ $differing->count() }} of {{ $units->count() }} use different terms
+                            @endif
+                        </span>
+                    @endif
+                </div>
 
-                @if ($model->products()->doesntExist())
-                    <p class="mt-2 text-sm text-gray-500">No units yet. Receiving a rental purchase order for this model adds them.</p>
+                @if ($units->isEmpty())
+                    <p class="mt-2 text-sm text-gray-500">No units in service yet. Receiving and committing a rental purchase order adds them.</p>
                 @else
                     <ul class="mt-3 divide-y divide-gray-100 text-sm">
-                        @foreach ($model->products()->orderBy('equipment_number')->get() as $unit)
-                            <li class="flex items-center justify-between py-2">
+                        @foreach ($units as $unit)
+                            <li class="flex items-center justify-between gap-3 py-2">
                                 <a href="{{ route('products.show', $unit) }}" class="font-mono text-xs text-indigo-600 hover:text-indigo-900">
                                     {{ $unit->equipment_number }}
                                 </a>
-                                <span class="text-gray-600">{{ $unit->is_active ? 'In service' : 'Retired' }}</span>
+                                @if ($differing->contains('id', $unit->id))
+                                    <span class="text-xs text-amber-700">Terms differ</span>
+                                @endif
                             </li>
                         @endforeach
                     </ul>
+
+                    @if ($differing->isNotEmpty() && in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
+                        <form method="POST" action="{{ route('equipment-models.apply-defaults', $model) }}" class="mt-4">
+                            @csrf
+                            <x-primary-button>
+                                Apply these terms to {{ $differing->count() }} {{ \Illuminate\Support\Str::plural('unit', $differing->count()) }}
+                            </x-primary-button>
+                            <p class="mt-2 text-xs text-gray-500">
+                                Rates, useful life and salvage are copied. Equipment numbers, serials, purchase prices and
+                                used sale prices stay as they are.
+                            </p>
+                        </form>
+                    @elseif ($differing->isNotEmpty())
+                        <p class="mt-3 text-xs text-gray-400">Admins and managers can apply these terms to the units.</p>
+                    @endif
                 @endif
             </div>
         </div>

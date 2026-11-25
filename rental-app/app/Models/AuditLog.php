@@ -44,6 +44,7 @@ class AuditLog extends Model
         'service_hold.committed' => 'Equipment committed to fleet',
         'service_hold.returned' => 'Held equipment returned to supplier',
         'service_hold.reopened' => 'Fleet equipment returned to service hold',
+        'equipment_model.defaults_applied' => 'Catalogue terms applied to units',
     ];
 
     protected $fillable = [
@@ -132,7 +133,7 @@ class AuditLog extends Model
     public function actionTone(): string
     {
         return match ($this->action) {
-            'tenant.suspended', 'tenant.user.deactivated', 'payment.voided', 'customer.tax_exemption_updated', 'service_hold.returned', 'service_hold.reopened' => 'danger',
+            'tenant.suspended', 'tenant.user.deactivated', 'payment.voided', 'customer.tax_exemption_updated', 'service_hold.returned', 'service_hold.reopened', 'equipment_model.defaults_applied' => 'danger',
             'tenant.activated', 'tenant.user.activated', 'purchase_order.received', 'service_hold.committed' => 'success',
             default => 'neutral',
         };

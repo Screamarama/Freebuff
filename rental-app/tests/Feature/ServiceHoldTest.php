@@ -933,6 +933,57 @@ class ServiceHoldTest extends TestCase
         $this->actingAs($user)->get(route('service-hold.reopen.form', $held))->assertNotFound();
     }
 
+    public function test_a_commit_that_changes_the_terms_reports_the_book_value_move(): void
+    {
+        $user = $this->tenantUser();
+        $unit = $this->heldUnit($user);
+        $started = now()->subMonths(12)->toDateString();
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload([
+                'depreciation_started_on' => $started,
+                'useful_life_months' => 48,
+                'salvage_value' => 4800,
+            ]))
+            ->assertSessionHasNoErrors();
+
+        // 24000 - (19200 / 48) * 12 = 19200 after a year.
+        $this->assertSame(19200.0, $unit->fresh()->bookValue());
+
+        EquipmentModel::create([
+            'business_id' => $user->business_id,
+            'name' => 'Wheel loader',
+            'manufacturer' => 'Caterpillar',
+            'model_number' => '930M',
+            'rental_price_day' => 650,
+            'useful_life_months' => 24,
+            'salvage_value' => 12000,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('service-hold.reopen', $unit), ['reason' => 'Committed to the wrong model'])
+            ->assertSessionHasNoErrors();
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit->fresh()), $this->commitPayload([
+                'equipment_number' => 'WL-1',
+                'name' => 'Wheel loader',
+                'manufacturer' => 'Caterpillar',
+                'model_number' => '930M',
+                'depreciation_started_on' => $started,
+            ]))
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('success', fn (string $message) => str_contains($message, '$19,200.00 → $18,000.00'));
+
+        // The corrected 24-month life and 12000 salvage: 24000 - 6000 = 18000.
+        $this->assertSame(18000.0, $unit->fresh()->bookValue());
+
+        $log = AuditLog::where('action', 'service_hold.committed')->latest('id')->firstOrFail();
+        $this->assertEquals(19200.0, $log->details['book_value_before']);
+        $this->assertEquals(18000.0, $log->details['book_value_after']);
+    }
+
     public function test_a_unit_held_by_a_future_reservation_cannot_go_back_to_hold(): void
     {
         $user = $this->tenantUser();

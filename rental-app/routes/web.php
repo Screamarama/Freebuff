@@ -31,6 +31,9 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
     Route::resource('products', ProductController::class);
     // Rental catalogue: what a unit is, separate from the unit itself.
     Route::resource('equipment-models', \App\Http\Controllers\EquipmentModelController::class)->except(['show']);
+    Route::post('/equipment-models/{equipmentModel}/apply-defaults', [\App\Http\Controllers\EquipmentModelController::class, 'applyDefaults'])
+        ->name('equipment-models.apply-defaults')
+        ->middleware('role:super_admin,admin,manager');
 
     // Received rental equipment waits here until it is set up and committed.
     Route::get('/service-hold', [\App\Http\Controllers\ServiceHoldController::class, 'index'])->name('service-hold.index');
