@@ -18,7 +18,7 @@ class Product extends Model
     public const FLEET_SERVICE_HOLD = 'service_hold';
 
     protected $fillable = [
-        'business_id', 'equipment_model_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
+        'business_id', 'equipment_model_id', 'purchase_order_item_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
         'purchase_order', 'purchase_date', 'useful_life_months', 'salvage_value', 'depreciation_started_on',
         'name', 'description', 'category', 'product_type',
         'rental_price_hour', 'rental_price_day', 'rental_price_week', 'rental_price_month', 'deposit_amount',
@@ -136,6 +136,12 @@ class Product extends Model
     public function equipmentModel(): BelongsTo
     {
         return $this->belongsTo(EquipmentModel::class);
+    }
+
+    /** The purchase order line this unit was received on. */
+    public function purchaseOrderItem(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseOrderItem::class);
     }
 
     /**

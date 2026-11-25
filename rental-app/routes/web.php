@@ -35,6 +35,12 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
     // Received rental equipment waits here until it is set up and committed.
     Route::get('/service-hold', [\App\Http\Controllers\ServiceHoldController::class, 'index'])->name('service-hold.index');
     // Pricing a unit and committing it to the fleet is an office decision.
+    Route::get('/service-hold/line/{item}/setup', [\App\Http\Controllers\ServiceHoldController::class, 'setupLine'])
+        ->name('service-hold.line.setup')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/service-hold/line/{item}/commit', [\App\Http\Controllers\ServiceHoldController::class, 'commitLine'])
+        ->name('service-hold.line.commit')
+        ->middleware('role:super_admin,admin,manager');
     Route::get('/service-hold/{product}/setup', [\App\Http\Controllers\ServiceHoldController::class, 'setup'])
         ->name('service-hold.setup')
         ->middleware('role:super_admin,admin,manager');

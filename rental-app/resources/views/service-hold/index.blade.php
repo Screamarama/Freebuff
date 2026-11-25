@@ -13,6 +13,10 @@
         </div>
     </x-slot>
 
+    @php
+        $canCommit = in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true);
+    @endphp
+
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
             @if (session('success'))
@@ -34,48 +38,79 @@
                         <span class="text-xs text-gray-400">Not bookable until committed</span>
                     </div>
 
-                    <div class="mt-4 overflow-auto">
-                        <table class="min-w-full divide-y divide-gray-200 text-sm">
-                            <thead>
-                                <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <th class="px-4 py-3">Temporary tag</th>
-                                    <th class="px-4 py-3">Equipment</th>
-                                    <th class="px-4 py-3">Purchase order</th>
-                                    <th class="px-4 py-3">Received</th>
-                                    <th class="px-4 py-3 text-right">Unit cost</th>
-                                    <th class="px-4 py-3"></th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-200">
-                                @foreach ($units as $unit)
-                                    <tr class="hover:bg-gray-50">
-                                        <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ $unit->equipment_number ?: '—' }}</td>
-                                        <td class="px-4 py-3 font-medium text-gray-900">{{ $unit->name ?: 'Unnamed equipment' }}</td>
-                                        <td class="px-4 py-3 font-mono text-xs text-gray-600">{{ $unit->purchase_order ?: '—' }}</td>
-                                        <td class="px-4 py-3 text-gray-700 whitespace-nowrap">
-                                            {{ $unit->purchase_date?->format('M j, Y') ?: '—' }}
-                                        </td>
-                                        <td class="px-4 py-3 text-right text-gray-700 whitespace-nowrap">
-                                            @if ($unit->cost_price !== null)
-                                                <x-money :amount="$unit->cost_price" />
-                                            @else
-                                                —
-                                            @endif
-                                        </td>
-                                        <td class="px-4 py-3 text-right">
-                                            @if (in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
-                                                <a href="{{ route('service-hold.setup', $unit) }}"
-                                                   class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
-                                                    Set up &amp; commit
-                                                </a>
-                                            @else
-                                                <span class="text-xs text-gray-400">Admins and managers only</span>
-                                            @endif
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
+                    <div class="mt-4 space-y-6">
+                        @foreach ($lines as $line)
+                            @php
+                                $lineUnits = $line['units'];
+                                $bulk = $line['item'] && $lineUnits->count() > 1;
+                            @endphp
+
+                            <div class="rounded-lg border border-gray-200">
+                                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 bg-gray-50 px-4 py-3">
+                                    <div>
+                                        <p class="text-sm font-semibold text-gray-900">
+                                            {{ $line['description'] }}
+                                        </p>
+                                        <p class="mt-0.5 text-xs text-gray-500">
+                                            {{ $line['purchase_order'] ?: 'Purchase order' }}
+                                            · {{ $lineUnits->count() }} {{ \Illuminate\Support\Str::plural('unit', $lineUnits->count()) }} on this line
+                                        </p>
+                                    </div>
+                                    @if ($bulk && $canCommit)
+                                        <a href="{{ route('service-hold.line.setup', $line['item']) }}"
+                                           class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
+                                            Set up all {{ $lineUnits->count() }}
+                                        </a>
+                                    @elseif ($bulk)
+                                        <span class="text-xs text-gray-400">Admins and managers only</span>
+                                    @endif
+                                </div>
+
+                                <div class="overflow-auto">
+                                    <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                        <thead>
+                                            <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                                <th class="px-4 py-3">Temporary tag</th>
+                                                <th class="px-4 py-3">Equipment</th>
+                                                <th class="px-4 py-3">Purchase order</th>
+                                                <th class="px-4 py-3">Received</th>
+                                                <th class="px-4 py-3 text-right">Unit cost</th>
+                                                <th class="px-4 py-3"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-200">
+                                            @foreach ($lineUnits as $unit)
+                                                <tr class="hover:bg-gray-50">
+                                                    <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ $unit->equipment_number ?: '—' }}</td>
+                                                    <td class="px-4 py-3 font-medium text-gray-900">{{ $unit->name ?: 'Unnamed equipment' }}</td>
+                                                    <td class="px-4 py-3 font-mono text-xs text-gray-600">{{ $unit->purchase_order ?: '—' }}</td>
+                                                    <td class="px-4 py-3 text-gray-700 whitespace-nowrap">
+                                                        {{ $unit->purchase_date?->format('M j, Y') ?: '—' }}
+                                                    </td>
+                                                    <td class="px-4 py-3 text-right text-gray-700 whitespace-nowrap">
+                                                        @if ($unit->cost_price !== null)
+                                                            <x-money :amount="$unit->cost_price" />
+                                                        @else
+                                                            —
+                                                        @endif
+                                                    </td>
+                                                    <td class="px-4 py-3 text-right">
+                                                        @if ($canCommit)
+                                                            <a href="{{ route('service-hold.setup', $unit) }}"
+                                                               class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
+                                                                Set up &amp; commit
+                                                            </a>
+                                                        @else
+                                                            <span class="text-xs text-gray-400">Admins and managers only</span>
+                                                        @endif
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        @endforeach
                     </div>
                 @endif
             </div>
