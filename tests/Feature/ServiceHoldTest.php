@@ -33,6 +33,17 @@ class ServiceHoldTest extends TestCase
         return $admin;
     }
 
+    private function staff(User $admin, string $role, string $email): User
+    {
+        $user = new User(['name' => ucfirst($role), 'email' => $email, 'password' => 'password']);
+        $user->role = $role;
+        $user->business_id = $admin->business_id;
+        $user->email_verified_at = now();
+        $user->save();
+
+        return $user;
+    }
+
     private function heldUnit(User $user, array $overrides = []): Product
     {
         return Product::create([
@@ -199,6 +210,73 @@ class ServiceHoldTest extends TestCase
             ->assertDontSeeText('Joins existing model')
             ->assertDontSee('sm:col-span-2 hidden')
             ->assertSee('Catalogue rates and depreciation');
+    }
+
+    public function test_a_clerk_can_see_the_hold_but_not_set_rates_or_commit(): void
+    {
+        $admin = $this->tenantUser();
+        $unit = $this->heldUnit($admin);
+        $clerk = $this->staff($admin, 'clerk', 'clerk@tenant.test');
+
+        $this->actingAs($clerk)
+            ->get(route('service-hold.index'))
+            ->assertOk()
+            ->assertSee('CAT 320 GC excavator')
+            ->assertDontSee('Set up &');
+
+        $this->actingAs($clerk)->get(route('service-hold.setup', $unit))->assertForbidden();
+
+        $this->actingAs($clerk)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload())
+            ->assertForbidden();
+
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $unit->fresh()->fleet_status);
+        $this->assertSame(0, EquipmentModel::query()->count());
+
+        // An admin still gets the button and the form.
+        $this->actingAs($admin)
+            ->get(route('service-hold.index'))
+            ->assertOk()
+            ->assertSee('Set up &');
+
+        $this->actingAs($admin)->get(route('service-hold.setup', $unit))->assertOk();
+    }
+
+    public function test_joining_a_retired_model_is_flagged_and_reactivates_it(): void
+    {
+        $user = $this->tenantUser();
+
+        $model = EquipmentModel::create([
+            'business_id' => $user->business_id,
+            'name' => 'Excavator',
+            'manufacturer' => 'Caterpillar',
+            'model_number' => '320 GC',
+            'rental_price_day' => 450,
+            'useful_life_months' => 60,
+            'salvage_value' => 5000,
+            'default_cost_price' => 20000,
+            'is_active' => false,
+        ]);
+
+        $unit = $this->heldUnit($user, [
+            'name' => 'Excavator',
+            'manufacturer' => 'Caterpillar',
+            'model_number' => '320 GC',
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('service-hold.setup', $unit))
+            ->assertOk()
+            ->assertSee('This model is retired; committing returns it to the catalogue.');
+
+        $this->actingAs($user)
+            ->post(route('service-hold.commit', $unit), $this->commitPayload())
+            ->assertSessionHasNoErrors()
+            ->assertSessionHas('success', fn (string $message) => str_contains($message, 'was retired and is active in the catalogue again'));
+
+        $this->assertTrue($model->fresh()->is_active);
+        $this->assertSame($model->id, $unit->fresh()->equipment_model_id);
+        $this->assertTrue($unit->fresh()->is_active);
     }
 
     public function test_committing_does_not_overwrite_an_existing_models_defaults(): void

@@ -63,10 +63,14 @@
                                             @endif
                                         </td>
                                         <td class="px-4 py-3 text-right">
-                                            <a href="{{ route('service-hold.setup', $unit) }}"
-                                               class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
-                                                Set up &amp; commit
-                                            </a>
+                                            @if (in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
+                                                <a href="{{ route('service-hold.setup', $unit) }}"
+                                                   class="inline-flex items-center px-3 py-1.5 bg-gray-800 rounded-md text-xs font-semibold uppercase tracking-widest text-white hover:bg-gray-700">
+                                                    Set up &amp; commit
+                                                </a>
+                                            @else
+                                                <span class="text-xs text-gray-400">Admins and managers only</span>
+                                            @endif
                                         </td>
                                     </tr>
                                 @endforeach
