@@ -5,6 +5,12 @@
                 {{ $product->name }}
             </h2>
             <div class="flex items-center gap-3">
+                @if ($product->isRental() && ! $product->isInServiceHold()
+                    && in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
+                    <a href="{{ route('service-hold.reopen.form', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
+                        Return to service hold
+                    </a>
+                @endif
                 <a href="{{ route('products.edit', $product) }}"
                    class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
                     Edit

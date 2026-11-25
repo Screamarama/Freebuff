@@ -47,6 +47,12 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
     Route::post('/service-hold/line/{item}/return', [\App\Http\Controllers\ServiceHoldController::class, 'returnLine'])
         ->name('service-hold.line.return')
         ->middleware('role:super_admin,admin,manager');
+    Route::get('/service-hold/line/{item}/reopen', [\App\Http\Controllers\ServiceHoldController::class, 'showReopenLine'])
+        ->name('service-hold.line.reopen.form')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/service-hold/line/{item}/reopen', [\App\Http\Controllers\ServiceHoldController::class, 'reopenLine'])
+        ->name('service-hold.line.reopen')
+        ->middleware('role:super_admin,admin,manager');
     Route::get('/service-hold/{product}/setup', [\App\Http\Controllers\ServiceHoldController::class, 'setup'])
         ->name('service-hold.setup')
         ->middleware('role:super_admin,admin,manager');
@@ -58,6 +64,12 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
         ->middleware('role:super_admin,admin,manager');
     Route::post('/service-hold/{product}/return', [\App\Http\Controllers\ServiceHoldController::class, 'returnUnit'])
         ->name('service-hold.return')
+        ->middleware('role:super_admin,admin,manager');
+    Route::get('/service-hold/{product}/reopen', [\App\Http\Controllers\ServiceHoldController::class, 'showReopen'])
+        ->name('service-hold.reopen.form')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/service-hold/{product}/reopen', [\App\Http\Controllers\ServiceHoldController::class, 'reopenUnit'])
+        ->name('service-hold.reopen')
         ->middleware('role:super_admin,admin,manager');
     Route::resource('customers', CustomerController::class);
     Route::get('/customers/create/cancel', [CustomerController::class, 'cancelCreate'])->name('customers.create.cancel');
