@@ -67,6 +67,20 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
         ->name('sales-tax.filings.export');
     Route::get('/sales-tax/filings/{filing}/amendment', [\App\Http\Controllers\SalesTaxReportController::class, 'exportAmendment'])
         ->name('sales-tax.filings.amendment');
+
+    // Purchasing: rental orders (capital equipment) and sales orders (resale
+    // stock) are separate series, with receipts and backorders on both.
+    Route::prefix('purchase-orders')->name('purchase-orders.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\PurchaseOrderController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\PurchaseOrderController::class, 'create'])->name('create');
+        Route::get('/backorders', [\App\Http\Controllers\PurchaseOrderController::class, 'backorders'])->name('backorders');
+        Route::post('/', [\App\Http\Controllers\PurchaseOrderController::class, 'store'])->name('store');
+        Route::get('/{purchase_order}', [\App\Http\Controllers\PurchaseOrderController::class, 'show'])->name('show');
+        Route::post('/{purchase_order}/items', [\App\Http\Controllers\PurchaseOrderController::class, 'storeItem'])->name('items.store');
+        Route::delete('/{purchase_order}/items/{item}', [\App\Http\Controllers\PurchaseOrderController::class, 'destroyItem'])->name('items.destroy');
+        Route::post('/{purchase_order}/receive', [\App\Http\Controllers\PurchaseOrderController::class, 'receive'])->name('receive');
+        Route::patch('/{purchase_order}/cancel', [\App\Http\Controllers\PurchaseOrderController::class, 'cancel'])->name('cancel');
+    });
 });
 
 // Tenant business details: the values contract placeholders are filled from.

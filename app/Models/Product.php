@@ -7,12 +7,13 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 class Product extends Model
 {
     protected $fillable = [
         'business_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
-        'purchase_order', 'purchase_date',
+        'purchase_order', 'purchase_date', 'useful_life_months', 'salvage_value', 'depreciation_started_on',
         'name', 'description', 'category', 'product_type',
         'rental_price_hour', 'rental_price_day', 'rental_price_week', 'rental_price_month', 'deposit_amount',
         'sale_price', 'cost_price', 'stock_quantity', 'available_quantity',
@@ -21,6 +22,8 @@ class Product extends Model
     
     protected $casts = [
         'purchase_date' => 'date',
+        'salvage_value' => 'decimal:2',
+        'depreciation_started_on' => 'date',
         'rental_price_hour' => 'decimal:2',
         'rental_price_day' => 'decimal:2',
         'rental_price_week' => 'decimal:2',
@@ -104,5 +107,53 @@ class Product extends Model
     public function reservations(): HasMany
     {
         return $this->hasMany(Reservation::class);
+    }
+
+    public function purchaseOrderItems(): HasMany
+    {
+        return $this->hasMany(PurchaseOrderItem::class);
+    }
+
+    /**
+     * Straight-line depreciation only applies to rental units that carry a cost,
+     * a useful life in months, and a date to start counting from.
+     */
+    public function monthlyDepreciation(): ?float
+    {
+        $cost = (float) $this->cost_price;
+        $months = (int) $this->useful_life_months;
+
+        if ($cost <= 0 || $months <= 0) {
+            return null;
+        }
+
+        $salvage = min((float) ($this->salvage_value ?? 0), $cost);
+
+        return round(($cost - $salvage) / $months, 2);
+    }
+
+    /** Cost less depreciation to date, never below salvage or above cost. */
+    public function bookValue(?Carbon $asOf = null): ?float
+    {
+        $monthly = $this->monthlyDepreciation();
+
+        if ($monthly === null) {
+            return null;
+        }
+
+        $start = $this->depreciation_started_on ?? $this->purchase_date;
+
+        if (! $start) {
+            return null;
+        }
+
+        $asOf = $asOf ?? Carbon::now();
+        $elapsed = (int) floor(max(0, $start->startOfDay()->diffInMonths($asOf->copy()->startOfDay())));
+
+        $cost = (float) $this->cost_price;
+        $salvage = min((float) ($this->salvage_value ?? 0), $cost);
+        $value = $cost - ($monthly * min($elapsed, (int) $this->useful_life_months));
+
+        return round(max($salvage, min($cost, $value)), 2);
     }
 }
