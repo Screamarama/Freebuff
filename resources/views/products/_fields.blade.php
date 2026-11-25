@@ -1,32 +1,46 @@
 @php
     $product = $product ?? null;
+    $models = $models ?? collect();
     $purchaseDate = old('purchase_date', $product?->purchase_date?->format('Y-m-d'));
+    $depreciationStart = old('depreciation_started_on', $product?->depreciation_started_on?->format('Y-m-d'));
 @endphp
 
 <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
     @if ($type === 'rental')
+        <div class="sm:col-span-2">
+            <x-input-label for="equipment_model_id" value="Equipment model" />
+
+            @if ($models->isEmpty())
+                <p class="mt-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    No equipment models yet.
+                    <a href="{{ route('equipment-models.create') }}" class="font-semibold underline">Create a model first</a>
+                    — it holds the make, rates and depreciation terms this unit copies.
+                </p>
+            @else
+                <select id="equipment_model_id" name="equipment_model_id" required
+                        class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">
+                    <option value="">Choose a model</option>
+                    @foreach ($models as $model)
+                        <option value="{{ $model->id }}" @selected(old('equipment_model_id', $product?->equipment_model_id) == $model->id)>
+                            {{ $model->name }}{{ $model->label() !== $model->name ? ' — '.$model->label() : '' }}{{ $model->is_active ? '' : ' (retired)' }}
+                        </option>
+                    @endforeach
+                </select>
+                <p class="mt-1 text-xs text-gray-500">
+                    Rates, useful life and salvage value come from the model.
+                    <a href="{{ route('equipment-models.index') }}" class="text-indigo-600 hover:text-indigo-900">Manage models</a>
+                </p>
+            @endif
+
+            <x-input-error :messages="$errors->get('equipment_model_id')" class="mt-2" />
+        </div>
+
         <div>
             <x-input-label for="equipment_number" value="Equipment number" />
             <x-text-input id="equipment_number" name="equipment_number" type="text" maxlength="50"
                           class="mt-1 block w-full"
                           value="{{ old('equipment_number', $product?->equipment_number) }}" required />
             <x-input-error :messages="$errors->get('equipment_number')" class="mt-2" />
-        </div>
-
-        <div>
-            <x-input-label for="manufacturer" value="Manufacturer" />
-            <x-text-input id="manufacturer" name="manufacturer" type="text" maxlength="150"
-                          class="mt-1 block w-full" value="{{ old('manufacturer', $product?->manufacturer) }}"
-                          placeholder="e.g. Caterpillar" />
-            <x-input-error :messages="$errors->get('manufacturer')" class="mt-2" />
-        </div>
-
-        <div>
-            <x-input-label for="model_number" value="Model number" />
-            <x-text-input id="model_number" name="model_number" type="text" maxlength="150"
-                          class="mt-1 block w-full" value="{{ old('model_number', $product?->model_number) }}"
-                          placeholder="e.g. 320 GC" />
-            <x-input-error :messages="$errors->get('model_number')" class="mt-2" />
         </div>
 
         <div>
@@ -53,29 +67,39 @@
         </div>
     @endif
 
-    <div class="sm:col-span-2">
-        <x-input-label for="name" value="Name" />
-        <x-text-input id="name" name="name" type="text" class="mt-1 block w-full"
-                      value="{{ old('name', $product?->name) }}" required />
-        <x-input-error :messages="$errors->get('name')" class="mt-2" />
-    </div>
+    @if ($type === 'sale')
+        <div class="sm:col-span-2">
+            <x-input-label for="name" value="Name" />
+            <x-text-input id="name" name="name" type="text" class="mt-1 block w-full"
+                          value="{{ old('name', $product?->name) }}" required />
+            <x-input-error :messages="$errors->get('name')" class="mt-2" />
+        </div>
+    @endif
 
     <div class="sm:col-span-2">
-        <x-input-label for="description" value="Description" />
+        <x-input-label for="description" value="{{ $type === 'rental' ? 'Unit notes (optional)' : 'Description' }}" />
         <textarea id="description" name="description" rows="3"
                   class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm">{{ old('description', $product?->description) }}</textarea>
+        @if ($type === 'rental')
+            <p class="mt-1 text-xs text-gray-500">Left blank, the model's description is used.</p>
+        @endif
         <x-input-error :messages="$errors->get('description')" class="mt-2" />
     </div>
 
-    <div>
-        <x-input-label for="category" value="Category" />
-        <x-text-input id="category" name="category" type="text" maxlength="100" class="mt-1 block w-full"
-                      value="{{ old('category', $product?->category) }}" />
-        <x-input-error :messages="$errors->get('category')" class="mt-2" />
-    </div>
+    @if ($type === 'sale')
+        <div>
+            <x-input-label for="category" value="Category" />
+            <x-text-input id="category" name="category" type="text" maxlength="100" class="mt-1 block w-full"
+                          value="{{ old('category', $product?->category) }}" />
+            <x-input-error :messages="$errors->get('category')" class="mt-2" />
+        </div>
+    @endif
 
     <div class="sm:col-span-2 border-t border-gray-200 pt-2">
         <h3 class="text-sm font-semibold text-gray-700">Image</h3>
+        @if ($type === 'rental')
+            <p class="mt-1 text-xs text-gray-500">Photo of this unit. The model can be pictured separately.</p>
+        @endif
     </div>
 
     <div class="sm:col-span-2 flex items-start gap-4">
@@ -136,36 +160,12 @@
     </div>
 
     @if ($type === 'rental')
-        <div class="sm:col-span-2 border-t border-gray-200 pt-2">
-            <h3 class="text-sm font-semibold text-gray-700">Rental pricing</h3>
-        </div>
-
         <div>
-            <x-input-label for="rental_price_hour" value="Rental price / hour" />
-            <x-text-input id="rental_price_hour" name="rental_price_hour" type="number" step="0.01" min="0"
-                          class="mt-1 block w-full" value="{{ old('rental_price_hour', $product?->rental_price_hour) }}" />
-            <x-input-error :messages="$errors->get('rental_price_hour')" class="mt-2" />
-        </div>
-
-        <div>
-            <x-input-label for="rental_price_day" value="Rental price / day" />
-            <x-text-input id="rental_price_day" name="rental_price_day" type="number" step="0.01" min="0"
-                          class="mt-1 block w-full" value="{{ old('rental_price_day', $product?->rental_price_day) }}" />
-            <x-input-error :messages="$errors->get('rental_price_day')" class="mt-2" />
-        </div>
-
-        <div>
-            <x-input-label for="rental_price_week" value="Rental price / week" />
-            <x-text-input id="rental_price_week" name="rental_price_week" type="number" step="0.01" min="0"
-                          class="mt-1 block w-full" value="{{ old('rental_price_week', $product?->rental_price_week) }}" />
-            <x-input-error :messages="$errors->get('rental_price_week')" class="mt-2" />
-        </div>
-
-        <div>
-            <x-input-label for="rental_price_month" value="Rental price / month" />
-            <x-text-input id="rental_price_month" name="rental_price_month" type="number" step="0.01" min="0"
-                          class="mt-1 block w-full" value="{{ old('rental_price_month', $product?->rental_price_month) }}" />
-            <x-input-error :messages="$errors->get('rental_price_month')" class="mt-2" />
+            <x-input-label for="depreciation_started_on" value="Depreciation start" />
+            <x-text-input id="depreciation_started_on" name="depreciation_started_on" type="date"
+                          class="mt-1 block w-full" value="{{ $depreciationStart }}" />
+            <p class="mt-1 text-xs text-gray-500">Leave blank to count from the purchase date. Life and salvage come from the model.</p>
+            <x-input-error :messages="$errors->get('depreciation_started_on')" class="mt-2" />
         </div>
     @else
         <div class="sm:col-span-2 border-t border-gray-200 pt-2">

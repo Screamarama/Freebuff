@@ -34,20 +34,6 @@ class PurchaseOrderTest extends TestCase
         return $admin;
     }
 
-    private function rentalProduct(User $user, array $overrides = []): Product
-    {
-        return Product::create([
-            'business_id' => $user->business_id,
-            'product_type' => 'rental',
-            'equipment_number' => 'EQ-'.uniqid(),
-            'name' => 'Excavator',
-            'rental_price_day' => 450,
-            'stock_quantity' => 1,
-            'is_active' => true,
-            ...$overrides,
-        ]);
-    }
-
     private function saleProduct(User $user, array $overrides = []): Product
     {
         return Product::create([
@@ -63,15 +49,17 @@ class PurchaseOrderTest extends TestCase
         ]);
     }
 
-    private function order(User $user, string $type, Product $product, int $quantity, float $unitCost, array $overrides = []): PurchaseOrder
+    private function order(User $user, string $type, Product|string $item, int $quantity, float $unitCost, array $overrides = []): PurchaseOrder
     {
+        $line = $type === 'rental'
+            ? ['description' => is_string($item) ? $item : 'Excavator', 'quantity_ordered' => $quantity, 'unit_cost' => $unitCost]
+            : ['product_id' => $item->id, 'quantity_ordered' => $quantity, 'unit_cost' => $unitCost];
+
         $this->actingAs($user)->post(route('purchase-orders.store'), [
             'type' => $type,
             'supplier_name' => 'Acme Supply',
             'ordered_on' => now()->toDateString(),
-            'items' => [
-                ['product_id' => $product->id, 'quantity_ordered' => $quantity, 'unit_cost' => $unitCost],
-            ],
+            'items' => [$line],
             ...$overrides,
         ])->assertSessionHasNoErrors();
 
@@ -93,11 +81,10 @@ class PurchaseOrderTest extends TestCase
     public function test_rental_and_sales_orders_keep_separate_number_series(): void
     {
         $user = $this->tenantUser();
-        $rental = $this->rentalProduct($user);
         $sale = $this->saleProduct($user);
 
-        $firstRental = $this->order($user, 'rental', $rental, 1, 100);
-        $secondRental = $this->order($user, 'rental', $rental, 1, 100);
+        $firstRental = $this->order($user, 'rental', 'CAT 320 GC excavator', 1, 100);
+        $secondRental = $this->order($user, 'rental', 'CAT 320 GC excavator', 1, 100);
         $sales = $this->order($user, 'sales', $sale, 4, 10);
 
         $this->assertSame('PO-R-0001', $firstRental->number);
@@ -156,8 +143,7 @@ class PurchaseOrderTest extends TestCase
     public function test_receiving_a_rental_order_creates_one_product_per_unit(): void
     {
         $user = $this->tenantUser();
-        $template = $this->rentalProduct($user, ['useful_life_months' => 24, 'salvage_value' => 0]);
-        $order = $this->order($user, 'rental', $template, 2, 100);
+        $order = $this->order($user, 'rental', 'CAT 320 GC excavator', 2, 100);
 
         $item = $order->items()->firstOrFail();
         $this->actingAs($user)
@@ -176,10 +162,18 @@ class PurchaseOrderTest extends TestCase
         $this->assertSame(['PO-R-0001-1', 'PO-R-0001-2'], $created->pluck('equipment_number')->all());
         $this->assertSame(100.0, (float) $created[0]->cost_price);
         $this->assertSame('2026-11-25', $created[0]->purchase_date->toDateString());
-        $this->assertSame('2026-11-25', $created[0]->depreciation_started_on->toDateString());
-        $this->assertSame(24, $created[0]->useful_life_months);
         $this->assertSame(1, (int) $created[0]->stock_quantity);
         $this->assertSame('rental', $created[0]->product_type);
+
+        // Not in the fleet yet: it waits in service hold, unpriced and unlisted.
+        $this->assertSame(Product::FLEET_SERVICE_HOLD, $created[0]->fleet_status);
+        $this->assertFalse($created[0]->is_active);
+        $this->assertNull($created[0]->equipment_model_id);
+        $this->assertNull($created[0]->useful_life_months);
+        $this->assertSame('CAT 320 GC excavator', $created[0]->name);
+
+        $this->actingAs($user)->get('/products')->assertOk()->assertDontSee('CAT 320 GC excavator');
+        $this->actingAs($user)->get(route('service-hold.index'))->assertOk()->assertSee('CAT 320 GC excavator');
     }
 
     public function test_cannot_receive_more_than_is_outstanding(): void
@@ -266,12 +260,18 @@ class PurchaseOrderTest extends TestCase
         $user = $this->tenantUser();
         $start = Carbon::today()->subMonths(6);
 
-        $product = $this->rentalProduct($user, [
+        $product = Product::create([
+            'business_id' => $user->business_id,
+            'product_type' => 'rental',
+            'equipment_number' => 'EQ-'.uniqid(),
+            'name' => 'Excavator',
+            'stock_quantity' => 1,
             'cost_price' => 1200,
             'salvage_value' => 0,
             'useful_life_months' => 12,
             'purchase_date' => $start,
             'depreciation_started_on' => $start,
+            'is_active' => true,
         ]);
 
         $this->assertSame(100.0, $product->monthlyDepreciation());
@@ -281,16 +281,17 @@ class PurchaseOrderTest extends TestCase
         $this->assertSame(0.0, $product->bookValue(Carbon::today()->addMonths(24)));
     }
 
-    public function test_a_rental_line_cannot_point_at_a_sales_product(): void
+    public function test_a_rental_line_needs_a_description(): void
     {
         $user = $this->tenantUser();
-        $sale = $this->saleProduct($user);
 
         $this->actingAs($user)
             ->post(route('purchase-orders.store'), [
                 'type' => 'rental',
-                'items' => [['product_id' => $sale->id, 'quantity_ordered' => 1]],
+                'items' => [['quantity_ordered' => 1]],
             ])
-            ->assertSessionHasErrors('items.0.product_id');
+            ->assertSessionHasErrors('items.0.description');
+
+        $this->assertSame(0, PurchaseOrder::query()->count());
     }
 }

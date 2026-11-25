@@ -11,13 +11,19 @@ use Illuminate\Support\Carbon;
 
 class Product extends Model
 {
+    /** In the bookable fleet. */
+    public const FLEET_ACTIVE = 'active';
+
+    /** Received from a purchase order, waiting to be set up and committed. */
+    public const FLEET_SERVICE_HOLD = 'service_hold';
+
     protected $fillable = [
-        'business_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
+        'business_id', 'equipment_model_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
         'purchase_order', 'purchase_date', 'useful_life_months', 'salvage_value', 'depreciation_started_on',
         'name', 'description', 'category', 'product_type',
         'rental_price_hour', 'rental_price_day', 'rental_price_week', 'rental_price_month', 'deposit_amount',
-        'sale_price', 'cost_price', 'stock_quantity', 'available_quantity',
-        'image_url', 'image_path', 'is_active', 'is_featured'
+        'sale_price', 'used_sale_price', 'cost_price', 'stock_quantity', 'available_quantity',
+        'image_url', 'image_path', 'is_active', 'fleet_status', 'is_featured'
     ];
     
     protected $casts = [
@@ -30,6 +36,7 @@ class Product extends Model
         'rental_price_month' => 'decimal:2',
         'deposit_amount' => 'decimal:2',
         'sale_price' => 'decimal:2',
+        'used_sale_price' => 'decimal:2',
         'cost_price' => 'decimal:2',
         'is_active' => 'boolean',
         'is_featured' => 'boolean',
@@ -83,6 +90,17 @@ class Product extends Model
         return $this->product_type === 'sale';
     }
 
+    /** Waiting in service hold for its rates and terms to be set. */
+    public function isInServiceHold(): bool
+    {
+        return $this->fleet_status === self::FLEET_SERVICE_HOLD;
+    }
+
+    public function scopeInServiceHold(Builder $query): void
+    {
+        $query->where('fleet_status', self::FLEET_SERVICE_HOLD);
+    }
+
     /**
      * What an <img> should point at: the uploaded file when there is one,
      * otherwise any pasted image URL. Root-relative so it works on any host.
@@ -112,6 +130,12 @@ class Product extends Model
     public function purchaseOrderItems(): HasMany
     {
         return $this->hasMany(PurchaseOrderItem::class);
+    }
+
+    /** The catalogue model this unit was bought as. */
+    public function equipmentModel(): BelongsTo
+    {
+        return $this->belongsTo(EquipmentModel::class);
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\EquipmentModel;
 use App\Models\Product;
 use App\Services\Availability;
 use Illuminate\Http\Request;
@@ -61,7 +62,10 @@ class ProductController extends Controller
             return view('products.choose-type');
         }
 
-        return view('products.create', compact('type'));
+        return view('products.create', [
+            'type' => $type,
+            'models' => $type === 'rental' ? $this->modelsFor($request) : collect(),
+        ]);
     }
 
     public function store(Request $request)
@@ -140,7 +144,10 @@ class ProductController extends Controller
     {
         $this->ensureSameTenant($request, $product);
 
-        return view('products.edit', compact('product'));
+        return view('products.edit', [
+            'product' => $product,
+            'models' => $product->isRental() ? $this->modelsFor($request, $product) : collect(),
+        ]);
     }
 
     public function update(Request $request, Product $product)
@@ -178,9 +185,10 @@ class ProductController extends Controller
     }
 
     /**
-     * Product rules differ by type. Rentals are identified by equipment
-     * number and priced per time block; sales are identified by SKU and
-     * tracked by stock. Purchase price is stored in cost_price.
+     * Product rules differ by type. A rental unit only carries unit-specific
+     * facts; its name, rates and depreciation terms are copied from the
+     * equipment model it belongs to. Sales items are their own catalogue entry
+     * and track stock. Purchase price is stored in cost_price.
      */
     private function validateProduct(Request $request, ?int $businessId, ?Product $product = null): array
     {
@@ -194,7 +202,7 @@ class ProductController extends Controller
 
         $rules = [
             'product_type' => 'required|in:rental,sale',
-            'name' => 'required|max:200',
+            'name' => $type === 'rental' ? 'nullable|max:200' : 'required|max:200',
             'description' => 'nullable',
             'category' => 'nullable|max:100',
             'image_url' => 'nullable|url',
@@ -208,13 +216,14 @@ class ProductController extends Controller
 
         if ($type === 'rental') {
             $rules += [
+                'equipment_model_id' => [
+                    'required',
+                    'integer',
+                    Rule::exists('equipment_models', 'id')->where(fn ($q) => $q->where('business_id', $businessId)),
+                ],
                 'equipment_number' => ['required', 'max:50', $unique('equipment_number')],
-                'model_number' => 'nullable|max:150',
                 'serial_number' => 'nullable|max:150',
-                'rental_price_hour' => 'nullable|numeric|min:0',
-                'rental_price_day' => 'nullable|numeric|min:0',
-                'rental_price_week' => 'nullable|numeric|min:0',
-                'rental_price_month' => 'nullable|numeric|min:0',
+                'depreciation_started_on' => 'nullable|date',
             ];
         } else {
             $rules += [
@@ -226,6 +235,15 @@ class ProductController extends Controller
         }
 
         $validated = $request->validate($rules);
+
+        if ($type === 'rental') {
+            $model = EquipmentModel::query()
+                ->where('business_id', $businessId)
+                ->findOrFail($validated['equipment_model_id']);
+
+            $validated['description'] = $validated['description'] ?? $model->description;
+            $validated = array_merge($validated, $this->specFromModel($model));
+        }
 
         // Uploads are written to the public disk; only the path is stored.
         if ($request->hasFile('image')) {
@@ -239,6 +257,43 @@ class ProductController extends Controller
         unset($validated['purchase_price']);
 
         return $validated;
+    }
+
+    /** The model-level facts a unit copies when it is created or re-saved. */
+    private function specFromModel(EquipmentModel $model): array
+    {
+        return [
+            'name' => $model->name,
+            'category' => $model->category,
+            'manufacturer' => $model->manufacturer,
+            'model_number' => $model->model_number,
+            'rental_price_hour' => $model->rental_price_hour,
+            'rental_price_day' => $model->rental_price_day,
+            'rental_price_week' => $model->rental_price_week,
+            'rental_price_month' => $model->rental_price_month,
+            'deposit_amount' => $model->deposit_amount,
+            'useful_life_months' => $model->useful_life_months,
+            'salvage_value' => $model->salvage_value,
+        ];
+    }
+
+    /**
+     * Active models, plus the unit's own model when it has been retired, so an
+     * existing unit can still be edited.
+     */
+    private function modelsFor(Request $request, ?Product $product = null)
+    {
+        return EquipmentModel::query()
+            ->where('business_id', $request->user()->business_id)
+            ->where(function ($query) use ($product) {
+                $query->where('is_active', true);
+
+                if ($product?->equipment_model_id) {
+                    $query->orWhere('id', $product->equipment_model_id);
+                }
+            })
+            ->orderBy('name')
+            ->get();
     }
 
     private function ensureSameTenant(Request $request, Product $product): void

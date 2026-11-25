@@ -3,10 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\Business;
+use App\Models\EquipmentModel;
 use App\Models\Product;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -33,16 +35,30 @@ class ProductEquipmentTest extends TestCase
         return $admin;
     }
 
-    private function payload(array $overrides = []): array
+    /** A rental unit posts the model it belongs to; the specs come from there. */
+    private function payload(array $overrides = [], array $modelOverrides = []): array
     {
-        return [
-            'equipment_number' => 'EQ-100',
+        $model = EquipmentModel::create([
+            'business_id' => auth()->user()->business_id,
+            'name' => 'Excavator',
             'manufacturer' => 'Caterpillar',
             'model_number' => '320 GC',
-            'serial_number' => 'CAT0320GC12345',
-            'name' => 'Excavator',
-            'product_type' => 'rental',
+            'category' => 'Earthmoving',
+            'rental_price_hour' => 75,
             'rental_price_day' => 450,
+            'rental_price_week' => 2400,
+            'rental_price_month' => 8000,
+            'useful_life_months' => 60,
+            'salvage_value' => 5000,
+            'is_active' => true,
+            ...$modelOverrides,
+        ]);
+
+        return [
+            'equipment_model_id' => $model->id,
+            'equipment_number' => 'EQ-100',
+            'serial_number' => 'CAT0320GC12345',
+            'product_type' => 'rental',
             ...$overrides,
         ];
     }
@@ -66,16 +82,13 @@ class ProductEquipmentTest extends TestCase
         $this->get(route('products.create', ['type' => 'rental']))
             ->assertOk()
             ->assertSee('Equipment number')
-            ->assertSee('Manufacturer')
-            ->assertSee('Model number')
             ->assertSee('Serial number')
+            ->assertSee('Equipment model')
             ->assertSee('Purchase order')
             ->assertSee('Purchase price')
             ->assertSee('Purchase date')
-            ->assertSee('Rental price / hour')
-            ->assertSee('Rental price / day')
-            ->assertSee('Rental price / week')
-            ->assertSee('Rental price / month')
+            ->assertSee('Depreciation start')
+            ->assertDontSee('Rental price / day')
             ->assertDontSee('Stock quantity')
             ->assertDontSee('Available quantity');
     }
@@ -95,7 +108,9 @@ class ProductEquipmentTest extends TestCase
             ->assertSee('Stock quantity')
             ->assertSee('Available quantity')
             ->assertDontSee('Equipment number')
-            ->assertDontSee('Rental price / day');
+            ->assertDontSee('Rental price / day')
+            ->assertDontSee('Useful life (months)')
+            ->assertDontSee('Salvage value');
     }
 
     public function test_sale_item_requires_a_sku_instead_of_equipment_number(): void
@@ -193,6 +208,78 @@ class ProductEquipmentTest extends TestCase
         // Rentals are single physical units; stock is implied, not entered.
         $this->assertSame(1, $product->stock_quantity);
         $this->assertSame(1, $product->available_quantity);
+    }
+
+    public function test_rental_depreciation_inputs_drive_the_book_value(): void
+    {
+        $admin = $this->tenantUser();
+        $this->actingAs($admin);
+
+        $this->post(route('products.store'), $this->payload([
+            'purchase_price' => 24000,
+            'purchase_date' => '2026-01-15',
+            'depreciation_started_on' => '2026-01-15',
+        ], [
+            'useful_life_months' => 48,
+            'salvage_value' => 4800,
+        ]))->assertRedirect('/products');
+
+        $product = Product::where('equipment_number', 'EQ-100')->firstOrFail();
+
+        $this->assertSame(48, $product->useful_life_months);
+        $this->assertSame('4800.00', $product->salvage_value);
+        $this->assertSame('2026-01-15', $product->depreciation_started_on->format('Y-m-d'));
+        $this->assertSame(400.0, $product->monthlyDepreciation());
+        $this->assertSame(21600.0, $product->bookValue(Carbon::parse('2026-07-15')));
+
+        $this->get(route('products.show', $product))
+            ->assertOk()
+            ->assertSee('Book value today')
+            ->assertSee('48 months');
+    }
+
+    public function test_rental_unit_copies_its_model_specs(): void
+    {
+        $this->actingAs($this->tenantUser());
+
+        $this->post(route('products.store'), $this->payload([], [
+            'name' => 'Mini Excavator',
+            'rental_price_hour' => 90,
+            'useful_life_months' => 36,
+            'salvage_value' => 1000,
+        ]))->assertRedirect('/products');
+
+        $product = Product::where('equipment_number', 'EQ-100')->firstOrFail();
+
+        $this->assertNotNull($product->equipment_model_id);
+        $this->assertSame('Mini Excavator', $product->name);
+        $this->assertSame('Caterpillar', $product->manufacturer);
+        $this->assertSame('320 GC', $product->model_number);
+        $this->assertSame('90.00', $product->rental_price_hour);
+        $this->assertSame(36, $product->useful_life_months);
+        $this->assertSame('1000.00', $product->salvage_value);
+    }
+
+    public function test_a_rental_unit_requires_a_model_of_the_same_tenant(): void
+    {
+        $this->actingAs($this->tenantUser());
+
+        $payload = ['equipment_number' => 'EQ-100', 'product_type' => 'rental'];
+
+        $this->post(route('products.store'), $payload)
+            ->assertSessionHasErrors('equipment_model_id');
+
+        $other = Business::create(['name' => 'Other Rental Co', 'is_active' => true]);
+        $foreign = EquipmentModel::create([
+            'business_id' => $other->id,
+            'name' => 'Not yours',
+            'is_active' => true,
+        ]);
+
+        $this->post(route('products.store'), $payload + ['equipment_model_id' => $foreign->id])
+            ->assertSessionHasErrors('equipment_model_id');
+
+        $this->assertDatabaseMissing('products', ['equipment_number' => 'EQ-100']);
     }
 
     public function test_sale_item_keeps_its_entered_stock(): void
@@ -311,6 +398,40 @@ class ProductEquipmentTest extends TestCase
             ->assertSee('JLG')
             ->assertSee('450AJ')
             ->assertSee('JLG-450-77');
+    }
+
+    public function test_used_sale_price_is_shown_to_staff_who_manage_the_fleet_but_not_clerks(): void
+    {
+        $admin = $this->tenantUser();
+
+        $product = Product::create([
+            'business_id' => $admin->business_id,
+            'product_type' => 'rental',
+            'equipment_number' => 'EQ-400',
+            'name' => 'Telehandler',
+            'used_sale_price' => 18000,
+            'stock_quantity' => 1,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('products.show', $product))
+            ->assertOk()
+            ->assertSee('Used sales price')
+            ->assertSee('$18,000.00');
+
+        $clerk = new User(['name' => 'Counter Clerk', 'email' => 'clerk@tenant.test', 'password' => 'password']);
+        $clerk->role = 'clerk';
+        $clerk->business_id = $admin->business_id;
+        $clerk->email_verified_at = now();
+        $clerk->save();
+
+        $this->actingAs($clerk)
+            ->get(route('products.show', $product))
+            ->assertOk()
+            ->assertSee('Equipment number')
+            ->assertDontSee('Used sales price')
+            ->assertDontSee('18,000.00');
     }
 
     public function test_rental_item_accepts_an_uploaded_image(): void

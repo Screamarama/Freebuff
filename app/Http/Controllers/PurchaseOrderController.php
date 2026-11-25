@@ -57,7 +57,7 @@ class PurchaseOrderController extends Controller
         $products = Product::query()
             ->where('business_id', $businessId)
             ->where('is_active', true)
-            ->where('product_type', $type === PurchaseOrder::TYPE_RENTAL ? 'rental' : 'sale')
+            ->where('product_type', 'sale')
             ->orderBy('name')
             ->get();
 
@@ -82,7 +82,8 @@ class PurchaseOrderController extends Controller
             'expected_on' => 'nullable|date|after_or_equal:ordered_on',
             'notes' => 'nullable|string|max:2000',
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|integer',
+            'items.*.product_id' => 'nullable|integer',
+            'items.*.description' => 'required_if:type,rental|nullable|string|max:150',
             'items.*.quantity_ordered' => 'required|integer|min:1',
             'items.*.unit_cost' => 'nullable|numeric|min:0',
         ], [
@@ -103,6 +104,18 @@ class PurchaseOrderController extends Controller
             ]);
 
             foreach ($data['items'] as $index => $line) {
+                if ($data['type'] === PurchaseOrder::TYPE_RENTAL) {
+                    // Rental equipment is ordered by description; its catalogue
+                    // entry and terms are set up after it is received.
+                    $order->items()->create([
+                        'description' => $line['description'],
+                        'quantity_ordered' => (int) $line['quantity_ordered'],
+                        'unit_cost' => $line['unit_cost'] ?? 0,
+                    ]);
+
+                    continue;
+                }
+
                 $product = $this->tenantProduct($businessId, (int) $line['product_id'], $data['type'], "items.$index.product_id");
 
                 $order->items()->create([
@@ -129,7 +142,7 @@ class PurchaseOrderController extends Controller
         $products = Product::query()
             ->where('business_id', $order->business_id)
             ->where('is_active', true)
-            ->where('product_type', $order->isRental() ? 'rental' : 'sale')
+            ->where('product_type', 'sale')
             ->orderBy('name')
             ->get();
 
@@ -145,19 +158,28 @@ class PurchaseOrderController extends Controller
         }
 
         $data = $request->validate([
-            'product_id' => 'required|integer',
+            'product_id' => 'nullable|integer',
+            'description' => $order->isRental() ? 'required|string|max:150' : 'nullable|string|max:150',
             'quantity_ordered' => 'required|integer|min:1',
             'unit_cost' => 'nullable|numeric|min:0',
         ]);
 
-        $product = $this->tenantProduct($order->business_id, (int) $data['product_id'], $order->type, 'product_id');
+        if ($order->isRental()) {
+            $order->items()->create([
+                'description' => $data['description'],
+                'quantity_ordered' => (int) $data['quantity_ordered'],
+                'unit_cost' => $data['unit_cost'] ?? 0,
+            ]);
+        } else {
+            $product = $this->tenantProduct($order->business_id, (int) ($data['product_id'] ?? 0), $order->type, 'product_id');
 
-        $order->items()->create([
-            'product_id' => $product->id,
-            'description' => $product->name,
-            'quantity_ordered' => (int) $data['quantity_ordered'],
-            'unit_cost' => $data['unit_cost'] ?? $product->cost_price ?? 0,
-        ]);
+            $order->items()->create([
+                'product_id' => $product->id,
+                'description' => $product->name,
+                'quantity_ordered' => (int) $data['quantity_ordered'],
+                'unit_cost' => $data['unit_cost'] ?? $product->cost_price ?? 0,
+            ]);
+        }
 
         $order->refreshStatus();
 
@@ -228,7 +250,7 @@ class PurchaseOrderController extends Controller
                     ]);
                 }
 
-                if (! $item->product) {
+                if (! $order->isRental() && ! $item->product) {
                     throw ValidationException::withMessages([
                         'quantities.'.$item->id => $item->label().': the product no longer exists.',
                     ]);
@@ -251,6 +273,14 @@ class PurchaseOrderController extends Controller
 
             $order->refreshStatus();
         });
+
+        // Rental equipment is not bookable yet: it waits in service hold to be
+        // priced and committed, so send the user straight there.
+        if ($order->isRental()) {
+            return redirect()
+                ->route('service-hold.index')
+                ->with('success', $order->number.': received units are in service hold, ready to set up.');
+        }
 
         return redirect()
             ->route('purchase-orders.show', $order)
@@ -304,10 +334,13 @@ class PurchaseOrderController extends Controller
         ]);
     }
 
+    /**
+     * Received rental equipment lands in service hold with only what the order
+     * says: a description, a temporary tag and its cost. Its rates, depreciation
+     * terms and catalogue entry are set when it is committed to the fleet.
+     */
     private function createRentalUnits(PurchaseOrder $order, PurchaseOrderItem $item, int $quantity, Carbon $receivedOn): void
     {
-        $template = $item->product;
-
         for ($unit = 0; $unit < $quantity; $unit++) {
             $sequence = Product::query()
                 ->where('business_id', $order->business_id)
@@ -317,25 +350,15 @@ class PurchaseOrderController extends Controller
             Product::create([
                 'business_id' => $order->business_id,
                 'product_type' => 'rental',
+                'fleet_status' => Product::FLEET_SERVICE_HOLD,
+                'is_active' => false,
                 'equipment_number' => $this->uniqueEquipmentNumber($order->number.'-'.$sequence, $order->business_id),
-                'name' => $template->name,
-                'description' => $template->description,
-                'category' => $template->category,
-                'manufacturer' => $template->manufacturer,
-                'model_number' => $template->model_number,
-                'rental_price_hour' => $template->rental_price_hour,
-                'rental_price_day' => $template->rental_price_day,
-                'rental_price_week' => $template->rental_price_week,
-                'rental_price_month' => $template->rental_price_month,
-                'deposit_amount' => $template->deposit_amount,
+                'name' => $item->description ?: 'Unnamed equipment',
                 'cost_price' => $item->unit_cost,
                 'purchase_order' => $order->number,
                 'purchase_date' => $receivedOn,
                 'depreciation_started_on' => $receivedOn,
-                'useful_life_months' => $template->useful_life_months,
-                'salvage_value' => $template->salvage_value,
                 'stock_quantity' => 1,
-                'is_active' => true,
             ]);
         }
     }

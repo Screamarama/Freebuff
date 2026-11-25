@@ -42,7 +42,10 @@
             <div id="rentals" class="p-4 sm:p-8 bg-white shadow sm:rounded-lg">
                 <div class="flex flex-wrap items-baseline justify-between gap-2">
                     <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Rental items</h3>
-                    <span class="text-xs text-gray-400">Sorted by equipment number</span>
+                    <div class="flex items-center gap-3">
+                        <a href="{{ route('equipment-models.index') }}" class="text-xs text-indigo-600 hover:text-indigo-900">Equipment models</a>
+                        <span class="text-xs text-gray-400">Sorted by equipment number</span>
+                    </div>
                 </div>
 
                 @if ($rentals->isEmpty())

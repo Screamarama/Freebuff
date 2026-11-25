@@ -95,7 +95,14 @@
                             @foreach ($order->items as $item)
                                 <tr class="hover:bg-gray-50">
                                     <td class="px-4 py-3">
-                                        @if ($item->product)
+                                        @if ($item->equipmentModel)
+                                            <a href="{{ route('equipment-models.edit', $item->equipmentModel) }}" class="font-medium text-gray-900 hover:text-indigo-600">
+                                                {{ $item->label() }}
+                                            </a>
+                                            @if ($item->useful_life_months)
+                                                <div class="text-xs text-gray-500">Booked over {{ $item->useful_life_months }} months</div>
+                                            @endif
+                                        @elseif ($item->product)
                                             <a href="{{ route('products.show', $item->product) }}" class="font-medium text-gray-900 hover:text-indigo-600">
                                                 {{ $item->label() }}
                                             </a>
@@ -135,7 +142,8 @@
                     <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Receive</h3>
                     <p class="mt-1 text-sm text-gray-600">
                         @if ($order->isRental())
-                            Each unit received becomes a new rental product record with the unit cost and purchase date below.
+                            Received units go into service hold with this cost and date. Set their rates, salvage value and
+                            used sales price there, then commit them to the fleet.
                         @else
                             Received units are added to each item's stock and available quantity.
                         @endif
@@ -174,13 +182,19 @@
                         @csrf
 
                         <div class="sm:col-span-6">
-                            <x-input-label for="product_id" value="Item" />
-                            <select id="product_id" name="product_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
-                                <option value="">Choose an item</option>
-                                @foreach ($products as $product)
-                                    <option value="{{ $product->id }}">{{ $product->name }}</option>
-                                @endforeach
-                            </select>
+                            @if ($order->isRental())
+                                <x-input-label for="description" value="Equipment" />
+                                <x-text-input id="description" name="description" type="text" maxlength="150"
+                                              class="mt-1 block w-full" placeholder="e.g. CAT 320 GC excavator" />
+                            @else
+                                <x-input-label for="product_id" value="Item" />
+                                <select id="product_id" name="product_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm">
+                                    <option value="">Choose an item</option>
+                                    @foreach ($products as $product)
+                                        <option value="{{ $product->id }}">{{ $product->name }}</option>
+                                    @endforeach
+                                </select>
+                            @endif
                         </div>
 
                         <div class="sm:col-span-2">
