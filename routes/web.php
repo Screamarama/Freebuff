@@ -80,6 +80,21 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
     Route::post('/service-hold/{product}/reopen', [\App\Http\Controllers\ServiceHoldController::class, 'reopenUnit'])
         ->name('service-hold.reopen')
         ->middleware('role:super_admin,admin,manager');
+    Route::get('/maintenance', [\App\Http\Controllers\FleetMaintenanceController::class, 'index'])
+        ->name('maintenance.index');
+    Route::get('/products/{product}/maintenance', [\App\Http\Controllers\FleetMaintenanceController::class, 'create'])
+        ->name('maintenance.create')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/products/{product}/maintenance', [\App\Http\Controllers\FleetMaintenanceController::class, 'store'])
+        ->name('maintenance.store')
+        ->middleware('role:super_admin,admin,manager');
+    Route::patch('/maintenance/{maintenance}/notes', [\App\Http\Controllers\FleetMaintenanceController::class, 'updateNotes'])
+        ->name('maintenance.notes')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/maintenance/{maintenance}/complete', [\App\Http\Controllers\FleetMaintenanceController::class, 'complete'])
+        ->name('maintenance.complete')
+        ->middleware('role:super_admin,admin,manager');
+
     Route::resource('customers', CustomerController::class);
     Route::get('/customers/create/cancel', [CustomerController::class, 'cancelCreate'])->name('customers.create.cancel');
     Route::get('/customers/{customer}/statement', [CustomerController::class, 'statement'])->name('customers.statement');
