@@ -108,6 +108,25 @@ class ReservationViewTest extends TestCase
             ->assertDontSee('Convert anyway?');
     }
 
+    public function test_closed_reservations_hide_conversion_and_refuse_it(): void
+    {
+        $user = $this->user();
+        $reservation = $this->reservation($this->product($user));
+
+        foreach (['cancelled', 'completed'] as $status) {
+            $reservation->update(['status' => $status]);
+
+            $this->actingAs($user)
+                ->get(route('reservations.show', $reservation))
+                ->assertOk()
+                ->assertDontSee('Convert to agreement');
+
+            $this->actingAs($user)
+                ->post(route('reservations.convert', $reservation))
+                ->assertStatus(422);
+        }
+    }
+
     public function test_the_edit_page_renders(): void
     {
         $user = $this->user();

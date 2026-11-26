@@ -10,7 +10,7 @@
                        class="inline-flex items-center px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-700 focus:bg-indigo-700 active:bg-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
                         View agreement
                     </a>
-                @elseif ($reservation->status !== 'cancelled')
+                @elseif (in_array($reservation->status, ['upcoming', 'active'], true))
                     <form method="POST" action="{{ route('reservations.convert', $reservation) }}"
                           @if ($reservation->customer?->taxExemptionHasExpired())
                               onsubmit="return confirm('Tax exemption certificate expired on {{ $reservation->customer->tax_exemption_expires_on->format('Y-m-d') }}. The agreement will be taxed. Convert anyway?');"
