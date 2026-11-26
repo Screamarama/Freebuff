@@ -186,6 +186,14 @@ class ProductController extends Controller
     {
         $this->ensureSameTenant($request, $product);
 
+        // Deleting would hide the unit while its repair stint is still open,
+        // leaving a job nobody can complete.
+        if ($product->openMaintenance()->exists()) {
+            return redirect()
+                ->route('products.show', $product)
+                ->with('error', 'This unit is out for maintenance; complete the job before deleting it.');
+        }
+
         $product->update(['is_active' => false]);
         return redirect('/products')->with('success', 'Product deleted!');
     }

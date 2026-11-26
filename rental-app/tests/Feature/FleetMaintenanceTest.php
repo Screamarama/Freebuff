@@ -232,6 +232,37 @@ class FleetMaintenanceTest extends TestCase
         $this->assertSame(Product::FLEET_DISPOSED, $unit->fresh()->fleet_status);
     }
 
+    public function test_a_unit_away_for_maintenance_cannot_be_deleted_until_the_job_is_done(): void
+    {
+        $business = $this->business();
+        $user = $this->user($business);
+        $unit = $this->unit($business, $this->model($business));
+
+        $this->actingAs($user)->post(route('maintenance.store', $unit), [
+            'reason' => 'Hydraulic leak',
+            'started_on' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($user)->delete(route('products.destroy', $unit))
+            ->assertRedirect(route('products.show', $unit))
+            ->assertSessionHas('error');
+
+        $this->assertSame(Product::FLEET_MAINTENANCE, $unit->fresh()->fleet_status);
+        $this->assertSame(1, FleetMaintenance::where('product_id', $unit->id)->count());
+
+        $job = FleetMaintenance::where('product_id', $unit->id)->sole();
+
+        $this->actingAs($user)->post(route('maintenance.complete', $job), [
+            'completed_on' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->assertTrue($unit->fresh()->is_active);
+
+        $this->actingAs($user)->delete(route('products.destroy', $unit))->assertSessionHasNoErrors();
+
+        $this->assertFalse($unit->fresh()->is_active);
+    }
+
     public function test_maintenance_is_limited_to_live_units_and_admin_or_manager(): void
     {
         $business = $this->business();
