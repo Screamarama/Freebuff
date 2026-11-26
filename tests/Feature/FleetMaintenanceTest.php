@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AuditLog;
 use App\Models\Business;
 use App\Models\EquipmentModel;
+use App\Models\FleetDisposal;
 use App\Models\FleetMaintenance;
 use App\Models\Product;
 use App\Models\User;
@@ -194,6 +195,41 @@ class FleetMaintenanceTest extends TestCase
             ->assertSee('Hydraulic leak')
             ->assertSee('975.00')
             ->assertSee('5 days');
+    }
+
+    public function test_a_unit_away_for_maintenance_cannot_be_disposed_until_the_job_is_done(): void
+    {
+        $business = $this->business();
+        $user = $this->user($business);
+        $unit = $this->unit($business, $this->model($business));
+
+        $this->actingAs($user)->post(route('maintenance.store', $unit), [
+            'reason' => 'Hydraulic leak',
+            'started_on' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($user)->post(route('products.dispose.store', $unit), [
+            'type' => 'sold',
+            'disposed_on' => now()->toDateString(),
+            'price' => '1000',
+        ])->assertSessionHasErrors('type');
+
+        $this->assertSame(Product::FLEET_MAINTENANCE, $unit->fresh()->fleet_status);
+        $this->assertSame(0, FleetDisposal::count());
+
+        $job = FleetMaintenance::where('product_id', $unit->id)->sole();
+
+        $this->actingAs($user)->post(route('maintenance.complete', $job), [
+            'completed_on' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($user)->post(route('products.dispose.store', $unit), [
+            'type' => 'sold',
+            'disposed_on' => now()->toDateString(),
+            'price' => '1000',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(Product::FLEET_DISPOSED, $unit->fresh()->fleet_status);
     }
 
     public function test_maintenance_is_limited_to_live_units_and_admin_or_manager(): void
