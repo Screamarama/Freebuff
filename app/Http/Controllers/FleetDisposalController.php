@@ -41,7 +41,9 @@ class FleetDisposalController extends Controller
         $data = $request->validate([
             'type' => ['required', 'in:sold,scrapped'],
             'disposed_on' => ['required', 'date', 'before_or_equal:today'],
-            'price' => ['nullable', 'numeric', 'min:0'],
+            // A blank sale price would record the unit as given away; scrap is
+            // allowed to fetch nothing.
+            'price' => ['required_if:type,sold', 'nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'max:1000'],
         ]);
 

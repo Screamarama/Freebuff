@@ -74,7 +74,7 @@
                             <x-text-input id="price" name="price" type="number" step="0.01" min="0"
                                           class="mt-1 block w-full" value="{{ old('price') }}"
                                           placeholder="0.00 for scrap" />
-                            <p class="mt-1 text-xs text-gray-500">What the buyer paid, or what the scrap was worth.</p>
+                            <p class="mt-1 text-xs text-gray-500">What the buyer paid. Required for a sale; leave blank for scrap that fetched nothing.</p>
                             <x-input-error :messages="$errors->get('price')" class="mt-2" />
                         </div>
 
