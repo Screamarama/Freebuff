@@ -15,6 +15,9 @@
                         <a href="{{ route('service-hold.reopen.form', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
                             Return to service hold
                         </a>
+                        <a href="{{ route('maintenance.create', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
+                            Send to maintenance
+                        </a>
                         <a href="{{ route('products.dispose', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
                             Dispose / sell
                         </a>
@@ -99,6 +102,10 @@
                             @if ($product->isDisposed())
                                 <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700">
                                     Disposed {{ $product->disposal?->disposed_on?->format('M j, Y') }}
+                                </span>
+                            @elseif ($product->isInMaintenance())
+                                <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-800">
+                                    In maintenance
                                 </span>
                             @else
                                 {{ $product->is_active ? 'Active' : 'Inactive' }}
@@ -289,7 +296,74 @@
                 </div>
             @endif
 
-            @if ($product->isRental() && ! $product->isDisposed())
+            @if ($product->isRental() && $product->maintenances->isNotEmpty())
+                <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
+                    <div class="flex flex-wrap items-baseline justify-between gap-2">
+                        <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Maintenance</h3>
+                        @if ($product->openMaintenance)
+                            <a href="{{ route('maintenance.index') }}" class="text-xs font-semibold text-indigo-600 hover:text-indigo-900">Manage job</a>
+                        @endif
+                    </div>
+
+                    @if ($open = $product->openMaintenance)
+                        <div class="mt-3 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm">
+                            <p class="font-semibold text-amber-900">
+                                Away since {{ $open->started_on->format('M j, Y') }}
+                                · {{ $open->daysOut() }} {{ \Illuminate\Support\Str::plural('day', $open->daysOut()) }} out
+                            </p>
+                            <p class="mt-1 text-amber-900">{{ $open->reason }}@if ($open->vendor) · {{ $open->vendor }}@endif</p>
+                            <p class="mt-1 text-xs text-amber-800">
+                                @if ($open->expected_return_on)
+                                    Due back {{ $open->expected_return_on->format('M j, Y') }}.
+                                @endif
+                                @if ($open->cost !== null)
+                                    Estimated cost <x-money :amount="$open->cost" />.
+                                @endif
+                            </p>
+                            @if ($open->notes)
+                                <p class="mt-2 whitespace-pre-line text-amber-900">{{ $open->notes }}</p>
+                            @endif
+                        </div>
+                    @endif
+
+                    <div class="mt-4 overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                            <thead>
+                                <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    <th class="px-2 py-2">Left</th>
+                                    <th class="px-2 py-2">Back</th>
+                                    <th class="px-2 py-2">Reason</th>
+                                    <th class="px-2 py-2">Vendor</th>
+                                    <th class="px-2 py-2 text-right">Days</th>
+                                    <th class="px-2 py-2 text-right">Cost</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200">
+                                @foreach ($product->maintenances as $job)
+                                    <tr>
+                                        <td class="px-2 py-2 text-gray-700 whitespace-nowrap">{{ $job->started_on->format('Y-m-d') }}</td>
+                                        <td class="px-2 py-2 text-gray-700 whitespace-nowrap">
+                                            {{ $job->completed_on?->format('Y-m-d') ?? 'Away' }}
+                                        </td>
+                                        <td class="px-2 py-2 text-gray-700">{{ $job->reason }}</td>
+                                        <td class="px-2 py-2 text-gray-700">{{ $job->vendor ?: '—' }}</td>
+                                        <td class="px-2 py-2 text-right text-gray-700">{{ $job->daysOut() }}</td>
+                                        <td class="px-2 py-2 text-right text-gray-700 whitespace-nowrap">
+                                            @if ($job->cost !== null)
+                                                <x-money :amount="$job->cost" />
+                                            @else
+                                                —
+                                            @endif
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endif
+
+            @if ($product->isRental() && ! $product->isDisposed() && ! $product->isInMaintenance())
                 <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
                     <div class="flex flex-wrap items-end justify-between gap-4">
                         <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Availability</h3>

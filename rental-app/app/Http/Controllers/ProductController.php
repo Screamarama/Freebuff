@@ -106,7 +106,11 @@ class ProductController extends Controller
     {
         $this->ensureSameTenant($request, $product);
 
-        $product->load('disposal.recordedBy');
+        $product->load([
+            'disposal.recordedBy',
+            'openMaintenance',
+            'maintenances' => fn ($query) => $query->orderByDesc('started_on'),
+        ]);
 
         [$from, $to, $truncated] = $this->availabilityRange($request);
 

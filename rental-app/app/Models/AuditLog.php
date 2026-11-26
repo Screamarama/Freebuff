@@ -46,6 +46,8 @@ class AuditLog extends Model
         'service_hold.reopened' => 'Fleet equipment returned to service hold',
         'equipment_model.defaults_applied' => 'Catalogue terms applied to units',
         'fleet.disposed' => 'Fleet unit sold or scrapped',
+        'maintenance.started' => 'Fleet unit sent for maintenance',
+        'maintenance.completed' => 'Fleet unit back from maintenance',
     ];
 
     protected $fillable = [

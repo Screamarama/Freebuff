@@ -21,6 +21,9 @@ class Product extends Model
     /** Sold or scrapped: out of the fleet, kept in history. */
     public const FLEET_DISPOSED = 'disposed';
 
+    /** Away for repair: out of availability, still owned. */
+    public const FLEET_MAINTENANCE = 'maintenance';
+
     protected $fillable = [
         'business_id', 'equipment_model_id', 'purchase_order_item_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
         'purchase_order', 'purchase_date', 'useful_life_months', 'salvage_value', 'depreciation_started_on',
@@ -110,6 +113,24 @@ class Product extends Model
     public function disposal(): HasOne
     {
         return $this->hasOne(FleetDisposal::class);
+    }
+
+    /** Away for repair, so not bookable right now. */
+    public function isInMaintenance(): bool
+    {
+        return $this->fleet_status === self::FLEET_MAINTENANCE;
+    }
+
+    /** Every repair stint, newest first when loaded that way. */
+    public function maintenances(): HasMany
+    {
+        return $this->hasMany(FleetMaintenance::class);
+    }
+
+    /** The repair stint currently keeping the unit out of service, if any. */
+    public function openMaintenance(): HasOne
+    {
+        return $this->hasOne(FleetMaintenance::class)->whereNull('completed_on')->latestOfMany();
     }
 
     public function scopeInServiceHold(Builder $query): void

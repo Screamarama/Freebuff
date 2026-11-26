@@ -14,8 +14,8 @@
                 <p class="text-sm text-gray-500">
                     What the rental fleet is worth on the books today, straight-line. Cost, useful life and salvage
                     come from each unit's own terms, so correcting a model's terms changes the figures here. Units
-                    waiting in service hold are not fleet yet and are left out until committed; retired units stay on
-                    the register because their cost is still on the books.
+                    waiting in service hold are not fleet yet and are left out until committed; retired units and units
+                    away for maintenance stay on the register because their cost is still on the books.
                 </p>
 
                 <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
