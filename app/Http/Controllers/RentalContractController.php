@@ -290,15 +290,9 @@ class RentalContractController extends Controller
                 ->with('success', 'This reservation already has a rental agreement.');
         }
 
-        if (in_array($reservation->status, ['cancelled'], true)) {
-            abort(422, 'Cancelled reservations cannot be converted.');
-        }
-
-        if ($reservation->status === 'completed' && $reservation->rentalContract === null) {
-            // Fall through: a completed reservation without a contract can still
-            // be converted (e.g. walk-in checkout recorded late). Otherwise only
-            // upcoming/active reservations convert.
-        } elseif (! in_array($reservation->status, ['upcoming', 'active', 'completed'], true)) {
+        // Closed reservations are done: converting one would create a second
+        // agreement for a booking that was cancelled or already served.
+        if (! in_array($reservation->status, ['upcoming', 'active'], true)) {
             abort(422, 'Only upcoming or active reservations can be converted.');
         }
 
