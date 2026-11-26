@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -201,6 +203,38 @@ class RentalContract extends Model
     public function isOnAccount(): bool
     {
         return $this->charged_to_account_at !== null && $this->charge_reversed_at === null;
+    }
+
+    /** Whole days past the due date; zero while it is still due. */
+    public function daysLate(?CarbonInterface $on = null): int
+    {
+        $today = Carbon::parse($on ?? now())->startOfDay();
+        $due = $this->end_date?->copy()->startOfDay();
+
+        if (! $due || $today->lte($due)) {
+            return 0;
+        }
+
+        return (int) $due->diffInDays($today);
+    }
+
+    /** One agreed day's rent, from the contract's own terms. */
+    public function dailyRent(): float
+    {
+        $start = $this->start_date?->copy()->startOfDay();
+        $end = $this->end_date?->copy()->startOfDay();
+        $days = ($start && $end) ? max(1, (int) $start->diffInDays($end)) : 1;
+
+        return round((float) $this->subtotal / $days, 2);
+    }
+
+    /**
+     * A prompt, not a charge: one day's rent for each day past the due date.
+     * The clerk decides the fee actually applied when the unit comes back.
+     */
+    public function suggestedLateFee(?CarbonInterface $on = null): float
+    {
+        return round($this->dailyRent() * $this->daysLate($on), 2);
     }
 
     /**
