@@ -82,7 +82,7 @@
                                           class="block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm"
                                           placeholder="What is being done while it is in service">{{ $job->notes }}</textarea>
                                 <x-input-error :messages="$errors->get('notes')" class="mt-1" />
-                                <x-secondary-button>Save notes</x-secondary-button>
+                                <x-secondary-button type="submit">Save notes</x-secondary-button>
                             </form>
 
                             <form method="POST" action="{{ route('maintenance.complete', $job) }}" class="space-y-2">

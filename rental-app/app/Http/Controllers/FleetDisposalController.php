@@ -98,6 +98,7 @@ class FleetDisposalController extends Controller
         $problem = match (true) {
             $product->isDisposed() => 'This unit has already been disposed of.',
             $product->isInServiceHold() => 'A unit in service hold is not in the fleet yet. Commit or return it instead.',
+            $product->isInMaintenance() => 'This unit is out for maintenance; complete the job before disposing of it.',
             default => null,
         };
 

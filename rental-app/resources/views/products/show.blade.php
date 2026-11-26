@@ -10,7 +10,7 @@
                         Disposed {{ $product->disposal?->disposed_on?->format('M j, Y') }}
                     </span>
                 @else
-                    @if ($product->isRental() && ! $product->isInServiceHold()
+                    @if ($product->isRental() && ! $product->isInServiceHold() && ! $product->isInMaintenance()
                         && in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
                         <a href="{{ route('service-hold.reopen.form', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
                             Return to service hold
@@ -186,10 +186,12 @@
                             </div>
                         @endforeach
 
-                        <div>
-                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Available quantity</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $product->available_quantity }} of {{ $product->stock_quantity }} available</dd>
-                        </div>
+                        @unless ($product->isDisposed() || $product->isInMaintenance())
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Available quantity</dt>
+                                <dd class="mt-1 text-sm text-gray-900">{{ $product->available_quantity }} of {{ $product->stock_quantity }} available</dd>
+                            </div>
+                        @endunless
                     @else
                         <div>
                             <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Sale price</dt>
