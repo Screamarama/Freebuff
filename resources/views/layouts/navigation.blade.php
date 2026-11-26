@@ -62,6 +62,10 @@
                         <x-nav-link :href="route('sales-tax.index')" :active="request()->routeIs('sales-tax.*')">
                             {{ __('Sales tax') }}
                         </x-nav-link>
+
+                        <x-nav-link :href="route('reports.fleet-value')" :active="request()->routeIs('reports.fleet-value*')">
+                            {{ __('Fleet value') }}
+                        </x-nav-link>
                     @endif
                     @if (in_array(Auth::user()->role, ['super_admin', 'admin', 'manager']))
                         <x-nav-link :href="route('contract-template.show')" :active="request()->routeIs('contract-template.*')">
@@ -169,6 +173,10 @@
 
                 <x-responsive-nav-link :href="route('sales-tax.index')" :active="request()->routeIs('sales-tax.*')">
                     {{ __('Sales tax') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('reports.fleet-value')" :active="request()->routeIs('reports.fleet-value*')">
+                    {{ __('Fleet value') }}
                 </x-responsive-nav-link>
             @endif
             @if (in_array(Auth::user()->role, ['super_admin', 'admin', 'manager']))
