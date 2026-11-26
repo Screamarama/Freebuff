@@ -6,6 +6,9 @@ use App\Http\Requests\CustomerRequest;
 use App\Models\AuditLog;
 use App\Models\Customer;
 use App\Models\Payment;
+use App\Models\RentalContract;
+use App\Models\Reservation;
+use App\Support\Money;
 use App\Services\CustomerAccount;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -108,6 +111,7 @@ class CustomerController extends Controller
 
         return view('customers.show', [
             'customer' => $customer,
+            'deleteBlockedReason' => $this->deletionBlockedReason($customer, $accounts),
             'accountBalance' => $position['owed'],
             'accountCredit' => $position['credited'],
             'accountAvailable' => $accounts->availableCredit($customer),
@@ -231,13 +235,43 @@ class CustomerController extends Controller
         return redirect()->route('customers.index')->with('success', 'Customer updated!');
     }
 
-    public function destroy(Request $request, Customer $customer)
+    public function destroy(Request $request, Customer $customer, CustomerAccount $accounts)
     {
         $this->ensureSameTenant($request, $customer);
+
+        if ($reason = $this->deletionBlockedReason($customer, $accounts)) {
+            return redirect()->route('customers.show', $customer)->with('error', $reason);
+        }
 
         $customer->update(['is_active' => false]);
 
         return redirect()->route('customers.index')->with('success', 'Customer deleted!');
+    }
+
+    /** Why this customer cannot be deleted, or null when they can. */
+    private function deletionBlockedReason(Customer $customer, CustomerAccount $accounts): ?string
+    {
+        $openAgreement = RentalContract::query()
+            ->where('customer_id', $customer->id)
+            ->whereNotIn('status', ['returned', 'cancelled'])
+            ->exists();
+
+        if ($openAgreement) {
+            return 'This customer has an open rental agreement; close it before deleting the customer.';
+        }
+
+        if (Reservation::blocking()->where('customer_id', $customer->id)->exists()) {
+            return 'This customer has an upcoming reservation; cancel or convert it before deleting the customer.';
+        }
+
+        $owed = $accounts->position($customer)['net'];
+
+        if ($owed > 0) {
+            return 'This customer owes '.Money::format($owed, $customer->business?->currency)
+                .' on their charge account; settle the balance before deleting the customer.';
+        }
+
+        return null;
     }
 
     /**

@@ -26,14 +26,16 @@
                        class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
                         Edit
                     </a>
-                    @unless ($product->isInMaintenance())
+                    @if ($deleteBlockedReason)
+                        <p class="max-w-xs text-xs text-gray-500">{{ $deleteBlockedReason }}</p>
+                    @else
                         <form method="POST" action="{{ route('products.destroy', $product) }}"
                               onsubmit="return confirm('Delete this product?');">
                             @csrf
                             @method('DELETE')
                             <x-secondary-button type="submit" class="text-red-600">Delete</x-secondary-button>
                         </form>
-                    @endunless
+                    @endif
                 @endif
             </div>
         </div>
