@@ -34,7 +34,15 @@ class RentalContractController extends Controller
         }
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            // "Overdue" is a fact about dates, not a stored status, so it uses
+            // the same rule the row badges and the chase list apply.
+            if ($request->status === 'overdue') {
+                $query->whereNotIn('status', ['returned', 'cancelled'])
+                    ->whereNull('actual_return_date')
+                    ->whereDate('end_date', '<', now()->startOfDay());
+            } else {
+                $query->where('status', $request->status);
+            }
         }
 
         if ($request->search) {
