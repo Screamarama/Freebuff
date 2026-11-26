@@ -136,6 +136,67 @@ class FleetUtilisationTest extends TestCase
             ->assertSee('Too new');
     }
 
+    public function test_the_keep_sell_list_downloads_as_csv_with_the_same_figures(): void
+    {
+        $unit = $this->unit('U-1');
+
+        $customer = Customer::create([
+            'business_id' => $this->business->id,
+            'customer_code' => 'C-1',
+            'first_name' => 'Jane',
+            'last_name' => 'Doe',
+            'phone' => '555-0142',
+        ]);
+
+        $contract = RentalContract::create([
+            'business_id' => $this->business->id,
+            'contract_number' => 'A-1',
+            'customer_id' => $customer->id,
+            'clerk_id' => $this->user->id,
+            'start_date' => now()->subDays(6)->toDateString(),
+            'end_date' => now()->subDays(2)->toDateString(),
+            'actual_return_date' => now()->subDays(2)->toDateString(),
+            'status' => 'returned',
+            'subtotal' => 300,
+            'tax_amount' => 0,
+            'tax_rate' => 0,
+            'total_amount' => 300,
+        ]);
+
+        RentalItem::create([
+            'contract_id' => $contract->id,
+            'product_id' => $unit->id,
+            'quantity' => 1,
+            'rate_type' => 'day',
+            'unit_price' => 75,
+            'duration' => 4,
+            'subtotal' => 300,
+        ]);
+
+        FleetMaintenance::create([
+            'business_id' => $this->business->id,
+            'product_id' => $unit->id,
+            'reason' => 'Hydraulic leak',
+            'started_on' => now()->subDays(9)->toDateString(),
+            'completed_on' => now()->subDays(8)->toDateString(),
+            'cost' => 100,
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('reports.fleet-utilisation.export'));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+        $this->assertStringContainsString('fleet-utilisation-'.now()->format('Y-m-d').'.csv', $response->headers->get('Content-Disposition'));
+
+        $csv = $response->streamedContent();
+
+        $this->assertStringContainsString('"Equipment number",Model,"In service","Days in service","Days on hire"', $csv);
+        $this->assertStringContainsString('U-1,"Unit U-1",', $csv);
+        $this->assertStringContainsString(',10,4,1,5,40,300.00,100.00,200.00,', $csv);
+        $this->assertStringContainsString(',Watch,USD', $csv);
+        $this->assertStringContainsString('"Fleet total","1 unit",,10,4,1,5,40,300.00,100.00,200.00', $csv);
+    }
+
     public function test_another_tenants_units_are_not_shown(): void
     {
         $other = Business::create(['name' => 'Other Rentals', 'currency' => 'USD', 'is_active' => true]);
