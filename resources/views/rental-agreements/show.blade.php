@@ -463,8 +463,10 @@
                             </div>
                             <div>
                                 <x-input-label for="late_fee" value="Late fee" />
+                                {{-- Overdue: start from the board's suggestion, still editable before settling. --}}
                                 <x-text-input id="late_fee" name="late_fee" type="number" step="0.01" min="0"
-                                              class="mt-1 block w-full" :value="old('late_fee', $contract->late_fee)" />
+                                              class="mt-1 block w-full"
+                                              :value="old('late_fee', (float) $contract->late_fee > 0 ? $contract->late_fee : $contract->suggestedLateFee())" />
                                 <x-input-error class="mt-2" :messages="$errors->get('late_fee')" />
                             </div>
                             <x-method-select name="refund_method" id="refund_method" label="Refund method" />

@@ -162,6 +162,36 @@ class OverdueReturnsTest extends TestCase
         $this->actingAs($clerk)->get(route('overdue-returns.index'))->assertOk();
     }
 
+    public function test_the_return_form_prefills_the_suggested_late_fee_but_keeps_a_fee_already_set(): void
+    {
+        $overdue = $this->contract();
+
+        $this->actingAs($this->user)
+            ->get(route('rental-agreements.show', $overdue))
+            ->assertOk()
+            ->assertSee('name="late_fee"', false)
+            ->assertSee('value="200"', false);
+
+        // A fee already on the agreement is not replaced by the suggestion.
+        $overdue->update(['late_fee' => 50]);
+
+        $this->actingAs($this->user)
+            ->get(route('rental-agreements.show', $overdue))
+            ->assertOk()
+            ->assertSee('value="50.00"', false);
+
+        // Nothing overdue: the field stays at zero.
+        $future = $this->contract([
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDays(2)->toDateString(),
+        ]);
+
+        $this->actingAs($this->user)
+            ->get(route('rental-agreements.show', $future))
+            ->assertOk()
+            ->assertSee('value="0.00"', false);
+    }
+
     public function test_a_same_day_rental_is_charged_one_days_rent_per_day_late(): void
     {
         $contract = $this->contract([
