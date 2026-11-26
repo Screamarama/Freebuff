@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\FleetMaintenance;
 use App\Models\Product;
 use App\Models\RentalItem;
+use App\Support\Csv;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * What each unit has earned against what it has cost: days on hire against
@@ -16,6 +18,73 @@ use Illuminate\View\View;
 class FleetUtilisationController extends Controller
 {
     public function index(Request $request): View
+    {
+        return view('reports.fleet-utilisation', $this->report($request));
+    }
+
+    public function export(Request $request): StreamedResponse
+    {
+        $data = $this->report($request);
+
+        $filename = 'fleet-utilisation-'.now()->format('Y-m-d').'.csv';
+
+        return $this->csv($filename, function ($file) use ($data) {
+            fputcsv($file, [
+                'Equipment number', 'Model', 'In service', 'Days in service', 'Days on hire',
+                'Maintenance days', 'Available days', 'Utilisation %', 'Rental revenue',
+                'Maintenance spend', 'Contribution', 'Book value', 'Return on cost %',
+                'Signal', 'Currency',
+            ]);
+
+            $amount = fn (?float $value) => $value === null ? '' : number_format($value, 2, '.', '');
+
+            foreach ($data['rows'] as $row) {
+                fputcsv($file, Csv::row([
+                    $row['unit']->equipment_number,
+                    $row['unit']->name,
+                    $row['since']?->toDateString(),
+                    $row['days_in_service'],
+                    $row['hire_days'],
+                    $row['downtime'],
+                    $row['available'],
+                    $row['utilisation'],
+                    $amount($row['revenue']),
+                    $amount($row['maintenance']),
+                    $amount($row['contribution']),
+                    $amount($row['book']),
+                    $row['return_on_cost'] === null ? '' : number_format($row['return_on_cost'], 1, '.', ''),
+                    $row['signal'],
+                    $data['currency'],
+                ]));
+            }
+
+            fputcsv($file, []);
+            fputcsv($file, Csv::row([
+                'Fleet total',
+                $data['count'].' '.($data['count'] === 1 ? 'unit' : 'units'),
+                '',
+                $data['total']['days_in_service'],
+                $data['total']['hire_days'],
+                $data['total']['downtime'],
+                $data['total']['available'],
+                $data['total']['utilisation'],
+                $amount($data['total']['revenue']),
+                $amount($data['total']['maintenance']),
+                $amount($data['total']['contribution']),
+                '',
+                '',
+                '',
+                $data['currency'],
+            ]));
+        });
+    }
+
+    /**
+     * The figures the page and the download share.
+     *
+     * @return array<string, mixed>
+     */
+    private function report(Request $request): array
     {
         $business = $request->user()->business;
 
@@ -151,11 +220,25 @@ class FleetUtilisationController extends Controller
                 : 0,
         ];
 
-        return view('reports.fleet-utilisation', [
+        return [
             'rows' => $rows,
             'total' => $total,
             'count' => $rows->count(),
             'currency' => $business->currency,
-        ]);
+        ];
+    }
+
+    private function csv(string $filename, \Closure $write): StreamedResponse
+    {
+        return response()->streamDownload(function () use ($write) {
+            $file = fopen('php://output', 'w');
+
+            // The BOM is what makes Excel read the file as UTF-8.
+            fwrite($file, "\xEF\xBB\xBF");
+
+            $write($file);
+
+            fclose($file);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 }
