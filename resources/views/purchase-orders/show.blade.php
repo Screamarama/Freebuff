@@ -214,7 +214,7 @@
                         </div>
 
                         <div class="sm:col-span-1">
-                            <x-secondary-button>Add</x-secondary-button>
+                            <x-secondary-button type="submit">Add</x-secondary-button>
                         </div>
                     </form>
                 </div>

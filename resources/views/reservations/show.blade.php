@@ -27,12 +27,12 @@
                     <form method="POST" action="{{ route('reservations.cancel', $reservation) }}">
                         @csrf
                         @method('PATCH')
-                        <x-secondary-button class="text-red-600">Cancel</x-secondary-button>
+                        <x-secondary-button type="submit" class="text-red-600">Cancel</x-secondary-button>
                     </form>
                     <form method="POST" action="{{ route('reservations.complete', $reservation) }}">
                         @csrf
                         @method('PATCH')
-                        <x-secondary-button>Complete</x-secondary-button>
+                        <x-secondary-button type="submit">Complete</x-secondary-button>
                     </form>
                 @endif
             </div>

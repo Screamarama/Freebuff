@@ -26,12 +26,14 @@
                        class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
                         Edit
                     </a>
-                    <form method="POST" action="{{ route('products.destroy', $product) }}"
-                          onsubmit="return confirm('Delete this product?');">
-                        @csrf
-                        @method('DELETE')
-                        <x-secondary-button class="text-red-600">Delete</x-secondary-button>
-                    </form>
+                    @unless ($product->isInMaintenance())
+                        <form method="POST" action="{{ route('products.destroy', $product) }}"
+                              onsubmit="return confirm('Delete this product?');">
+                            @csrf
+                            @method('DELETE')
+                            <x-secondary-button type="submit" class="text-red-600">Delete</x-secondary-button>
+                        </form>
+                    @endunless
                 @endif
             </div>
         </div>
@@ -39,6 +41,12 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
+            @if (session('error'))
+                <div class="p-4 bg-red-100 border border-red-200 rounded-md text-sm text-red-800">
+                    {{ session('error') }}
+                </div>
+            @endif
+
             @if (session('success'))
                 <div class="p-4 bg-green-100 border border-green-200 rounded-md text-sm text-green-800">
                     {{ session('success') }}

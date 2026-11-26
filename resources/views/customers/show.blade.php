@@ -19,7 +19,7 @@
                       onsubmit="return confirm('Delete this customer?');">
                     @csrf
                     @method('DELETE')
-                    <x-secondary-button class="text-red-600">Delete</x-secondary-button>
+                    <x-secondary-button type="submit" class="text-red-600">Delete</x-secondary-button>
                 </form>
             </div>
         </div>

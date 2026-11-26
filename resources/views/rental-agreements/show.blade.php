@@ -217,7 +217,7 @@
                                                   placeholder="Why the charge was wrong" />
                                     <x-input-error class="mt-2" :messages="$errors->get('reason')" />
                                 </div>
-                                <x-secondary-button class="text-red-600">Reverse charge</x-secondary-button>
+                                <x-secondary-button type="submit" class="text-red-600">Reverse charge</x-secondary-button>
                             </form>
                         @endcan
                     @else
@@ -538,7 +538,7 @@
                         </div>
 
                         <div>
-                            <x-secondary-button class="text-red-600">
+                            <x-secondary-button type="submit" class="text-red-600">
                                 {{ $contract->status === 'cancelled' ? 'Refund money' : 'Cancel & refund' }}
                             </x-secondary-button>
                         </div>
@@ -582,7 +582,7 @@
                                     <x-input-error class="mt-2" :messages="$errors->get('cancellation_reason')" />
                                 </div>
 
-                                <x-secondary-button class="text-red-600">Cancel agreement</x-secondary-button>
+                                <x-secondary-button type="submit" class="text-red-600">Cancel agreement</x-secondary-button>
                             </form>
                         @endcan
                     </div>
