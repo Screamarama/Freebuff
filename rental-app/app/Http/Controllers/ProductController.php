@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\EquipmentModel;
 use App\Models\Product;
+use App\Models\RentalItem;
+use App\Models\Reservation;
 use App\Services\Availability;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -118,7 +120,14 @@ class ProductController extends Controller
             ? $availability->dailyAvailability($product, $from, $to)
             : [];
 
-        return view('products.show', compact('product', 'calendar', 'from', 'to', 'truncated'));
+        return view('products.show', [
+            'product' => $product,
+            'calendar' => $calendar,
+            'from' => $from,
+            'to' => $to,
+            'truncated' => $truncated,
+            'deleteBlockedReason' => $this->deletionBlockedReason($product),
+        ]);
     }
 
     /** The requested availability window, defaulting to the next seven days. */
@@ -186,16 +195,37 @@ class ProductController extends Controller
     {
         $this->ensureSameTenant($request, $product);
 
-        // Deleting would hide the unit while its repair stint is still open,
-        // leaving a job nobody can complete.
-        if ($product->openMaintenance()->exists()) {
+        if ($reason = $this->deletionBlockedReason($product)) {
             return redirect()
                 ->route('products.show', $product)
-                ->with('error', 'This unit is out for maintenance; complete the job before deleting it.');
+                ->with('error', $reason);
         }
 
         $product->update(['is_active' => false]);
         return redirect('/products')->with('success', 'Product deleted!');
+    }
+
+    /** Why this unit cannot be deleted, or null when it can. */
+    private function deletionBlockedReason(Product $product): ?string
+    {
+        if ($product->openMaintenance()->exists()) {
+            return 'This unit is out for maintenance; complete the job before deleting it.';
+        }
+
+        $onHire = RentalItem::query()
+            ->where('product_id', $product->id)
+            ->whereHas('contract', fn ($query) => $query->whereNotIn('status', ['returned', 'cancelled']))
+            ->exists();
+
+        if ($onHire) {
+            return 'This unit is on an open rental agreement; close it before deleting the unit.';
+        }
+
+        if (Reservation::blocking()->where('product_id', $product->id)->exists()) {
+            return 'This unit is held by an upcoming reservation; cancel or convert it before deleting the unit.';
+        }
+
+        return null;
     }
 
     /**
