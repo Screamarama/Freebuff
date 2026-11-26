@@ -106,6 +106,8 @@ class ProductController extends Controller
     {
         $this->ensureSameTenant($request, $product);
 
+        $product->load('disposal.recordedBy');
+
         [$from, $to, $truncated] = $this->availabilityRange($request);
 
         $calendar = $product->isRental()

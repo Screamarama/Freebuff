@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
 
 class Product extends Model
@@ -16,6 +17,9 @@ class Product extends Model
 
     /** Received from a purchase order, waiting to be set up and committed. */
     public const FLEET_SERVICE_HOLD = 'service_hold';
+
+    /** Sold or scrapped: out of the fleet, kept in history. */
+    public const FLEET_DISPOSED = 'disposed';
 
     protected $fillable = [
         'business_id', 'equipment_model_id', 'purchase_order_item_id', 'equipment_number', 'sku', 'manufacturer', 'model_number', 'serial_number',
@@ -94,6 +98,18 @@ class Product extends Model
     public function isInServiceHold(): bool
     {
         return $this->fleet_status === self::FLEET_SERVICE_HOLD;
+    }
+
+    /** Sold or scrapped, so no longer part of the fleet. */
+    public function isDisposed(): bool
+    {
+        return $this->fleet_status === self::FLEET_DISPOSED;
+    }
+
+    /** The sale or scrap record, when the unit has left the fleet. */
+    public function disposal(): HasOne
+    {
+        return $this->hasOne(FleetDisposal::class);
     }
 
     public function scopeInServiceHold(Builder $query): void

@@ -100,7 +100,7 @@ class FleetValueController extends Controller
             ->where('business_id', $business->id)
             ->where('product_type', 'rental')
             ->where(fn ($query) => $query->whereNull('fleet_status')
-                ->orWhere('fleet_status', '!=', Product::FLEET_SERVICE_HOLD))
+                ->orWhereNotIn('fleet_status', [Product::FLEET_SERVICE_HOLD, Product::FLEET_DISPOSED]))
             ->with('equipmentModel')
             ->orderBy('equipment_number')
             ->get()

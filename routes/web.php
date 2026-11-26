@@ -29,6 +29,12 @@ Route::middleware('auth')->group(function () {
 // cross-tenant record lists; they manage details via impersonation.
 Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager,clerk'])->group(function () {
     Route::resource('products', ProductController::class);
+    Route::get('/products/{product}/dispose', [\App\Http\Controllers\FleetDisposalController::class, 'create'])
+        ->name('products.dispose')
+        ->middleware('role:super_admin,admin,manager');
+    Route::post('/products/{product}/dispose', [\App\Http\Controllers\FleetDisposalController::class, 'store'])
+        ->name('products.dispose.store')
+        ->middleware('role:super_admin,admin,manager');
     // Rental catalogue: what a unit is, separate from the unit itself.
     Route::resource('equipment-models', \App\Http\Controllers\EquipmentModelController::class)->except(['show']);
     Route::post('/equipment-models/{equipmentModel}/apply-defaults', [\App\Http\Controllers\EquipmentModelController::class, 'applyDefaults'])
@@ -109,6 +115,8 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
         ->name('reports.fleet-value');
     Route::get('/reports/fleet-value/export', [\App\Http\Controllers\FleetValueController::class, 'export'])
         ->name('reports.fleet-value.export');
+    Route::get('/reports/fleet-history', [\App\Http\Controllers\FleetHistoryController::class, 'index'])
+        ->name('reports.fleet-history');
     Route::get('/sales-tax', [\App\Http\Controllers\SalesTaxReportController::class, 'index'])->name('sales-tax.index');
     Route::get('/sales-tax/export', [\App\Http\Controllers\SalesTaxReportController::class, 'export'])->name('sales-tax.export');
     Route::post('/sales-tax/filings', [\App\Http\Controllers\SalesTaxReportController::class, 'storeFiling'])->name('sales-tax.filings.store');
