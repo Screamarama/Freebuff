@@ -55,15 +55,18 @@
                 </div>
             @endif
 
-            <div class="p-4 bg-green-50 border border-green-200 rounded-md text-sm text-green-800">
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ $reservation->holdColor() }}">
-                    {{ $reservation->holdLabel() }}
-                </span>
-                <span class="ml-2">
-                    Item stays available until <strong>{{ $reservation->lockFrom()->format('Y-m-d H:i') }}</strong>
-                    (24h before start). Stock counts are never decremented by reservations.
-                </span>
-            </div>
+            {{-- The hold only means something while the booking is open. --}}
+            @if (in_array($reservation->status, ['upcoming', 'active'], true))
+                <div class="p-4 bg-green-50 border border-green-200 rounded-md text-sm text-green-800">
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ $reservation->holdColor() }}">
+                        {{ $reservation->holdLabel() }}
+                    </span>
+                    <span class="ml-2">
+                        Item stays available until <strong>{{ $reservation->lockFrom()->format('Y-m-d H:i') }}</strong>
+                        (24h before start). Stock counts are never decremented by reservations.
+                    </span>
+                </div>
+            @endif
 
             <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
                 <dl class="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
