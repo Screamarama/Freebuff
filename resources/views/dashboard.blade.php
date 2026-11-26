@@ -75,8 +75,12 @@
                     <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-3">
                         <h3 class="text-sm font-semibold text-gray-900 uppercase tracking-wide">Overdue returns</h3>
                         <div class="flex items-center gap-3 text-sm">
-                            <span class="font-semibold {{ $overdue->isNotEmpty() ? 'text-red-700' : 'text-gray-600' }}">{{ $overdue->count() }}</span>
-                            <a href="{{ route('rental-agreements.index') }}" class="text-xs font-semibold text-indigo-600 hover:text-indigo-900">Agreements</a>
+                            <a href="{{ route('overdue-returns.index') }}"
+                               class="font-semibold underline-offset-2 hover:underline {{ $overdue->isNotEmpty() ? 'text-red-700' : 'text-gray-600' }}"
+                               title="Open the overdue returns board">
+                                {{ $overdue->count() }}
+                            </a>
+                            <a href="{{ route('overdue-returns.index') }}" class="text-xs font-semibold text-indigo-600 hover:text-indigo-900">Chase list</a>
                         </div>
                     </div>
                     <div class="divide-y divide-gray-200">
@@ -89,7 +93,7 @@
                                     <div class="text-xs text-gray-600 truncate">{{ $contract->customer?->full_name ?? '—' }}</div>
                                 </div>
                                 <span class="text-xs font-semibold text-red-700 whitespace-nowrap">
-                                    {{ (int) $contract->end_date->diffInDays($today) }} {{ \Illuminate\Support\Str::plural('day', (int) $contract->end_date->diffInDays($today)) }} late
+                                    {{ $contract->daysLate($today) }} {{ \Illuminate\Support\Str::plural('day', $contract->daysLate($today)) }} late
                                 </span>
                             </div>
                         @empty

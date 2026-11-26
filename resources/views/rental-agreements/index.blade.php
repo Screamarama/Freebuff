@@ -70,7 +70,7 @@
                             </thead>
                             <tbody class="divide-y divide-gray-200">
                                 @foreach ($contracts as $contract)
-                                    <tr class="hover:bg-gray-50">
+                                    <tr class="hover:bg-gray-50 {{ $contract->isOverdue() ? 'bg-red-50' : '' }}">
                                         <td class="px-4 py-3 font-mono text-xs text-gray-700 whitespace-nowrap">
                                             <a href="{{ route('rental-agreements.show', $contract) }}" class="hover:text-indigo-600">
                                                 {{ $contract->contract_number }}
@@ -81,7 +81,14 @@
                                         <td class="px-4 py-3 text-right font-medium text-gray-900 whitespace-nowrap">
                                             <x-money :amount="$contract->total_amount" />
                                         </td>
-                                        <td class="px-4 py-3 whitespace-nowrap text-gray-700">{{ ucfirst($contract->status) }}</td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-gray-700">
+                                            {{ ucfirst($contract->status) }}
+                                            @if ($contract->isOverdue())
+                                                <span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                                    {{ $contract->daysLate() }} {{ \Illuminate\Support\Str::plural('day', $contract->daysLate()) }} late
+                                                </span>
+                                            @endif
+                                        </td>
                                         <td class="px-4 py-3 text-right whitespace-nowrap">
                                             <a href="{{ route('rental-agreements.show', $contract) }}"
                                                class="text-xs font-semibold uppercase tracking-widest text-indigo-600 hover:text-indigo-900">View</a>
