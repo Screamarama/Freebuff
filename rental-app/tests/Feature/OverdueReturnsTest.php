@@ -152,6 +152,31 @@ class OverdueReturnsTest extends TestCase
             ->assertDontSee($otherContract->contract_number);
     }
 
+    public function test_the_chase_list_downloads_as_csv_with_the_same_rows_and_totals(): void
+    {
+        $overdue = $this->contract();
+        $future = $this->contract([
+            'contract_number' => 'A-FUTURE',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDays(2)->toDateString(),
+        ]);
+
+        $response = $this->actingAs($this->user)->get(route('overdue-returns.export'));
+
+        $response->assertOk();
+        $response->assertHeader('Content-Type', 'text/csv; charset=UTF-8');
+        $this->assertStringContainsString('overdue-returns-'.now()->format('Y-m-d').'.csv', $response->headers->get('Content-Disposition'));
+
+        $csv = $response->streamedContent();
+
+        $this->assertStringContainsString('Agreement,Customer,Phone,"Due back","Days late",Units,"Daily rent","Suggested late fee",Currency', $csv);
+        $this->assertStringContainsString($overdue->contract_number, $csv);
+        $this->assertStringContainsString('"Jane Doe",555-0142', $csv);
+        $this->assertStringContainsString('2,1,100.00,200.00,USD', $csv);
+        $this->assertStringContainsString('"Overdue total","1 agreement",,,,1,,200.00,USD', $csv);
+        $this->assertStringNotContainsString($future->contract_number, $csv);
+    }
+
     public function test_a_clerk_can_see_the_board(): void
     {
         $clerk = new User(['name' => 'Dana Clerk', 'email' => 'clerk@acme.test', 'password' => 'password']);
