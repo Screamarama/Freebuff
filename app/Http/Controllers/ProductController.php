@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\RentalItem;
 use App\Models\Reservation;
 use App\Services\Availability;
+use App\Services\FleetUtilisation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
@@ -104,7 +105,7 @@ class ProductController extends Controller
         return redirect('/products')->with('success', 'Product created!');
     }
 
-    public function show(Request $request, Product $product, Availability $availability)
+    public function show(Request $request, Product $product, Availability $availability, FleetUtilisation $fleetUtilisation)
     {
         $this->ensureSameTenant($request, $product);
 
@@ -120,6 +121,11 @@ class ProductController extends Controller
             ? $availability->dailyAvailability($product, $from, $to)
             : [];
 
+        // Same figures the fleet utilisation report uses, for this unit alone.
+        $usage = $product->isRental() && ! $product->isInServiceHold()
+            ? $fleetUtilisation->forUnit($product)
+            : null;
+
         return view('products.show', [
             'product' => $product,
             'calendar' => $calendar,
@@ -127,6 +133,7 @@ class ProductController extends Controller
             'to' => $to,
             'truncated' => $truncated,
             'deleteBlockedReason' => $this->deletionBlockedReason($product),
+            'usage' => $usage,
         ]);
     }
 

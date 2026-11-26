@@ -197,6 +197,79 @@ class FleetUtilisationTest extends TestCase
         $this->assertStringContainsString('"Fleet total","1 unit",,10,4,1,5,40,300.00,100.00,200.00', $csv);
     }
 
+    public function test_the_unit_page_shows_the_same_figures_as_the_report(): void
+    {
+        $unit = $this->unit('U-1');
+
+        $customer = Customer::create([
+            'business_id' => $this->business->id,
+            'customer_code' => 'C-1',
+            'first_name' => 'Jane',
+            'last_name' => 'Doe',
+            'phone' => '555-0142',
+        ]);
+
+        $contract = RentalContract::create([
+            'business_id' => $this->business->id,
+            'contract_number' => 'A-1',
+            'customer_id' => $customer->id,
+            'clerk_id' => $this->user->id,
+            'start_date' => now()->subDays(6)->toDateString(),
+            'end_date' => now()->subDays(2)->toDateString(),
+            'actual_return_date' => now()->subDays(2)->toDateString(),
+            'status' => 'returned',
+            'subtotal' => 300,
+            'tax_amount' => 0,
+            'tax_rate' => 0,
+            'total_amount' => 300,
+        ]);
+
+        RentalItem::create([
+            'contract_id' => $contract->id,
+            'product_id' => $unit->id,
+            'quantity' => 1,
+            'rate_type' => 'day',
+            'unit_price' => 75,
+            'duration' => 4,
+            'subtotal' => 300,
+        ]);
+
+        FleetMaintenance::create([
+            'business_id' => $this->business->id,
+            'product_id' => $unit->id,
+            'reason' => 'Hydraulic leak',
+            'started_on' => now()->subDays(9)->toDateString(),
+            'completed_on' => now()->subDays(8)->toDateString(),
+            'cost' => 150,
+        ]);
+
+        $this->actingAs($this->user)
+            ->get(route('products.show', $unit))
+            ->assertOk()
+            ->assertSee('Utilisation &amp; return on asset', false)
+            ->assertSee('40%')
+            ->assertSee('300.00')
+            ->assertSee('150.00')
+            ->assertSee('150.00')
+            ->assertSee('Watch')
+            ->assertSee('Fleet report');
+
+        $sale = Product::create([
+            'business_id' => $this->business->id,
+            'name' => 'Sale item',
+            'product_type' => 'sale',
+            'sku' => 'S-1',
+            'sale_price' => 50,
+            'stock_quantity' => 1,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($this->user)
+            ->get(route('products.show', $sale))
+            ->assertOk()
+            ->assertDontSee('Utilisation &amp; return on asset', false);
+    }
+
     public function test_another_tenants_units_are_not_shown(): void
     {
         $other = Business::create(['name' => 'Other Rentals', 'currency' => 'USD', 'is_active' => true]);

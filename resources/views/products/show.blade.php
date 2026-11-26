@@ -375,6 +375,71 @@
                 </div>
             @endif
 
+            @if ($usage)
+                <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
+                    <div class="flex flex-wrap items-baseline justify-between gap-2">
+                        <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Utilisation &amp; return on asset</h3>
+                        <a href="{{ route('reports.fleet-utilisation') }}" class="text-xs font-semibold text-indigo-600 hover:text-indigo-900">
+                            Fleet report
+                        </a>
+                    </div>
+
+                    <p class="mt-1 text-xs text-gray-500">
+                        Since {{ $usage['since']?->format('M j, Y') ?? 'an unknown date' }}
+                        · {{ $usage['days_in_service'] }} {{ \Illuminate\Support\Str::plural('day', $usage['days_in_service']) }} in service
+                    </p>
+
+                    <dl class="mt-4 grid grid-cols-2 gap-x-6 gap-y-4 text-sm sm:grid-cols-3">
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Utilisation</dt>
+                            <dd class="mt-1 text-lg font-semibold text-gray-900">{{ $usage['utilisation'] }}%</dd>
+                            <dd class="text-xs text-gray-500">{{ $usage['hire_days'] }} of {{ $usage['days_in_service'] }} days on hire</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Maintenance days</dt>
+                            <dd class="mt-1 text-lg font-semibold text-gray-900">{{ $usage['downtime'] }}</dd>
+                            <dd class="text-xs text-gray-500">{{ $usage['available'] }} available days</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Rental revenue</dt>
+                            <dd class="mt-1 text-lg font-semibold text-gray-900"><x-money :amount="$usage['revenue']" /></dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Repairs</dt>
+                            <dd class="mt-1 text-lg font-semibold text-gray-900"><x-money :amount="$usage['maintenance']" /></dd>
+                            <dd class="text-xs text-gray-500">Completed jobs only</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Contribution</dt>
+                            <dd class="mt-1 text-lg font-semibold {{ $usage['contribution'] < 0 ? 'text-red-700' : 'text-gray-900' }}">
+                                <x-money :amount="$usage['contribution']" />
+                            </dd>
+                            <dd class="text-xs text-gray-500">Revenue less repairs</dd>
+                        </div>
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Return on cost</dt>
+                            <dd class="mt-1 text-lg font-semibold text-gray-900">
+                                {{ $usage['return_on_cost'] === null ? '—' : number_format($usage['return_on_cost'], 1).'%' }}
+                            </dd>
+                            <dd class="text-xs text-gray-500">Book value <x-money :amount="$usage['book']" /></dd>
+                        </div>
+                    </dl>
+
+                    <div class="mt-4">
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                            @class([
+                                'bg-red-100 text-red-800' => $usage['signal'] === 'Stop repairing',
+                                'bg-amber-100 text-amber-800' => $usage['signal'] === 'Low use',
+                                'bg-green-100 text-green-800' => $usage['signal'] === 'Strong',
+                                'bg-gray-100 text-gray-600' => in_array($usage['signal'], ['Watch', 'Too new'], true),
+                            ])">
+                            {{ $usage['signal'] }}
+                        </span>
+                        <span class="ml-2 text-xs text-gray-500">A prompt to look, not a decision.</span>
+                    </div>
+                </div>
+            @endif
+
             @if ($product->isRental() && ! $product->isDisposed() && ! $product->isInMaintenance())
                 <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
                     <div class="flex flex-wrap items-end justify-between gap-4">
