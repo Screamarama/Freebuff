@@ -195,6 +195,29 @@ class OverdueReturnsTest extends TestCase
             ->assertDontSee('1 day late');
     }
 
+    public function test_the_overdue_status_filter_uses_the_same_rule_as_the_badges(): void
+    {
+        $overdue = $this->contract();
+        $future = $this->contract([
+            'contract_number' => 'A-FUTURE',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDays(2)->toDateString(),
+        ]);
+        $returned = $this->contract([
+            'contract_number' => 'A-RETURNED',
+            'status' => 'returned',
+            'actual_return_date' => now()->subDay()->toDateString(),
+        ]);
+
+        $this->actingAs($this->user)
+            ->get(route('rental-agreements.index', ['status' => 'overdue']))
+            ->assertOk()
+            ->assertSee($overdue->contract_number)
+            ->assertSee('2 days late')
+            ->assertDontSee($future->contract_number)
+            ->assertDontSee($returned->contract_number);
+    }
+
     public function test_the_dashboard_overdue_count_links_to_the_board(): void
     {
         $this->contract();
