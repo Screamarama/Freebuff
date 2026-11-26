@@ -63,6 +63,10 @@
                             {{ __('Receivables') }}
                         </x-nav-link>
 
+                        <x-nav-link :href="route('overdue-returns.index')" :active="request()->routeIs('overdue-returns.*')">
+                            {{ __('Overdue returns') }}
+                        </x-nav-link>
+
                         <x-nav-link :href="route('sales-tax.index')" :active="request()->routeIs('sales-tax.*')">
                             {{ __('Sales tax') }}
                         </x-nav-link>
@@ -181,6 +185,10 @@
                 </x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('receivables.index')" :active="request()->routeIs('receivables.*')">
                     {{ __('Receivables') }}
+                </x-responsive-nav-link>
+
+                <x-responsive-nav-link :href="route('overdue-returns.index')" :active="request()->routeIs('overdue-returns.*')">
+                    {{ __('Overdue returns') }}
                 </x-responsive-nav-link>
 
                 <x-responsive-nav-link :href="route('sales-tax.index')" :active="request()->routeIs('sales-tax.*')">
