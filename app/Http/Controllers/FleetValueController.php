@@ -110,7 +110,9 @@ class FleetValueController extends Controller
         $valued = $rows->whereNotNull('book');
 
         $models = $rows
-            ->groupBy(fn (array $row) => $row['unit']->equipment_model_id ?? 'none')
+            // Without a catalogue model there is nothing to group by, so each
+            // such unit keeps its own row rather than borrowing another's name.
+            ->groupBy(fn (array $row) => $row['unit']->equipment_model_id ?? 'unit-'.$row['unit']->id)
             ->map(function (Collection $group) {
                 return [
                     'label' => $group->first()['model'],
