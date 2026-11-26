@@ -134,8 +134,8 @@
             <p class="text-xs text-gray-500">
                 Signal: <strong>Stop repairing</strong> when completed repairs equal or exceed the unit's rental
                 revenue; <strong>Low use</strong> below 25% utilisation; <strong>Strong</strong> at 60% or more with
-                positive contribution; <strong>Too new</strong> under 30 days in service. It is a prompt to look, not
-                a decision.
+                positive contribution; <strong>Too new</strong> under 30 days in service with no hire yet. It is a prompt
+                to look, not a decision.
             </p>
         </div>
     </div>
