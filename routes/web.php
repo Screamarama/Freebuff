@@ -127,6 +127,7 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
     Route::post('/rental-agreements/{rental_contract}/reverse-charge', [\App\Http\Controllers\AgreementPaymentController::class, 'reverseCharge'])->name('rental-agreements.reverse-charge');
     Route::get('/receivables', [\App\Http\Controllers\AccountsReceivableController::class, 'index'])->name('receivables.index');
     Route::get('/overdue-returns', [\App\Http\Controllers\OverdueReturnsController::class, 'index'])->name('overdue-returns.index');
+    Route::get('/overdue-returns/export', [\App\Http\Controllers\OverdueReturnsController::class, 'export'])->name('overdue-returns.export');
     Route::get('/reports/fleet-value', [\App\Http\Controllers\FleetValueController::class, 'index'])
         ->name('reports.fleet-value');
     Route::get('/reports/fleet-value/export', [\App\Http\Controllers\FleetValueController::class, 'export'])
