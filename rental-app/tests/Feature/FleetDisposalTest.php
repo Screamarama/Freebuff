@@ -255,6 +255,29 @@ class FleetDisposalTest extends TestCase
         $this->assertSame(0, FleetDisposal::count());
     }
 
+    public function test_a_sale_needs_a_price_but_a_scrap_does_not(): void
+    {
+        $business = $this->business();
+        $user = $this->user($business);
+        $unit = $this->unit($business, $this->model($business));
+
+        $this->actingAs($user)->post(route('products.dispose.store', $unit), [
+            'type' => 'sold',
+            'disposed_on' => now()->toDateString(),
+        ])->assertSessionHasErrors('price');
+
+        $this->assertSame(Product::FLEET_ACTIVE, $unit->fresh()->fleet_status);
+        $this->assertSame(0, FleetDisposal::count());
+
+        $this->actingAs($user)->post(route('products.dispose.store', $unit), [
+            'type' => 'scrapped',
+            'disposed_on' => now()->toDateString(),
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(Product::FLEET_DISPOSED, $unit->fresh()->fleet_status);
+        $this->assertSame('0.00', FleetDisposal::where('product_id', $unit->id)->sole()->price);
+    }
+
     public function test_the_disposal_date_cannot_be_in_the_future(): void
     {
         $business = $this->business();
