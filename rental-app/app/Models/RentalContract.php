@@ -218,6 +218,14 @@ class RentalContract extends Model
         return (int) $due->diffInDays($today);
     }
 
+    /** Past its due date, still open and not back in the yard. */
+    public function isOverdue(?CarbonInterface $on = null): bool
+    {
+        return $this->actual_return_date === null
+            && ! in_array($this->status, ['returned', 'cancelled'], true)
+            && $this->daysLate($on) > 0;
+    }
+
     /** One agreed day's rent, from the contract's own terms. */
     public function dailyRent(): float
     {

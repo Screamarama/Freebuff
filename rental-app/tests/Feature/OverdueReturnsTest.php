@@ -177,6 +177,36 @@ class OverdueReturnsTest extends TestCase
         $this->assertStringNotContainsString($future->contract_number, $csv);
     }
 
+    public function test_the_agreements_list_marks_an_overdue_row(): void
+    {
+        $overdue = $this->contract();
+        $future = $this->contract([
+            'contract_number' => 'A-FUTURE',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addDays(2)->toDateString(),
+        ]);
+
+        $this->actingAs($this->user)
+            ->get(route('rental-agreements.index'))
+            ->assertOk()
+            ->assertSee($overdue->contract_number)
+            ->assertSee($future->contract_number)
+            ->assertSee('2 days late')
+            ->assertDontSee('1 day late');
+    }
+
+    public function test_the_dashboard_overdue_count_links_to_the_board(): void
+    {
+        $this->contract();
+
+        $this->actingAs($this->user)
+            ->get(route('dashboard'))
+            ->assertOk()
+            ->assertSee('Overdue returns')
+            ->assertSee('2 days late')
+            ->assertSee('href="'.route('overdue-returns.index').'"', false);
+    }
+
     public function test_a_clerk_can_see_the_board(): void
     {
         $clerk = new User(['name' => 'Dana Clerk', 'email' => 'clerk@acme.test', 'password' => 'password']);
