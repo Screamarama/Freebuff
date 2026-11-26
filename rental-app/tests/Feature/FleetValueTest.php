@@ -134,6 +134,22 @@ class FleetValueTest extends TestCase
             ->assertSee('3 needing attention');
     }
 
+    public function test_units_without_a_catalogue_model_get_their_own_row(): void
+    {
+        $business = $this->business();
+        $user = $this->user($business);
+
+        $this->unit($business, null, ['equipment_number' => 'FL-LOOSE-1', 'name' => 'Loose excavator']);
+        $this->unit($business, null, ['equipment_number' => 'FL-LOOSE-2', 'name' => 'Loose loader']);
+
+        $this->actingAs($user)
+            ->get(route('reports.fleet-value'))
+            ->assertOk()
+            ->assertSee('Loose excavator')
+            ->assertSee('Loose loader')
+            ->assertSee('2 units');
+    }
+
     public function test_the_export_lists_units_and_model_totals_and_leaves_other_tenants_and_hold_out(): void
     {
         $business = $this->business();
