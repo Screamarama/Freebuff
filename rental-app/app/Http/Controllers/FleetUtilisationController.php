@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\FleetMaintenance;
 use App\Models\Product;
 use App\Models\RentalItem;
+use App\Services\FleetUtilisation;
 use App\Support\Csv;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -17,14 +18,14 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class FleetUtilisationController extends Controller
 {
-    public function index(Request $request): View
+    public function index(Request $request, FleetUtilisation $utilisation): View
     {
-        return view('reports.fleet-utilisation', $this->report($request));
+        return view('reports.fleet-utilisation', $this->report($request, $utilisation));
     }
 
-    public function export(Request $request): StreamedResponse
+    public function export(Request $request, FleetUtilisation $utilisation): StreamedResponse
     {
-        $data = $this->report($request);
+        $data = $this->report($request, $utilisation);
 
         $filename = 'fleet-utilisation-'.now()->format('Y-m-d').'.csv';
 
@@ -84,7 +85,7 @@ class FleetUtilisationController extends Controller
      *
      * @return array<string, mixed>
      */
-    private function report(Request $request): array
+    private function report(Request $request, FleetUtilisation $utilisation): array
     {
         $business = $request->user()->business;
 
@@ -112,100 +113,15 @@ class FleetUtilisationController extends Controller
             ->get()
             ->groupBy('product_id');
 
-        $rows = $units->map(function (Product $unit) use ($itemsByUnit, $maintenanceByUnit, $today) {
-            $since = ($unit->depreciation_started_on ?? $unit->purchase_date)?->copy()->startOfDay()
-                ?? $unit->created_at?->copy()->startOfDay();
-            $daysInService = $since ? max(0, (int) $since->diffInDays($today)) : 0;
-
-            $hireDays = 0;
-            $revenue = 0.0;
-
-            foreach ($itemsByUnit->get($unit->id, collect()) as $item) {
-                $contract = $item->contract;
-
-                if (! $contract?->start_date) {
-                    continue;
-                }
-
-                $revenue += (float) $item->subtotal;
-
-                $from = $contract->start_date->copy()->startOfDay();
-                if ($since && $from->lt($since)) {
-                    $from = $since->copy();
-                }
-
-                // A unit out on an open agreement is on hire up to today, even
-                // if its booked end date is still ahead.
-                $to = ($contract->actual_return_date ?? $today)->copy()->startOfDay();
-                if ($to->gt($today)) {
-                    $to = $today->copy();
-                }
-
-                $hireDays += max(0, (int) $from->diffInDays($to));
-            }
-
-            $hireDays = min($hireDays, $daysInService);
-
-            $downtime = 0;
-            $maintenanceSpend = 0.0;
-
-            foreach ($maintenanceByUnit->get($unit->id, collect()) as $stint) {
-                if (! $stint->started_on) {
-                    continue;
-                }
-
-                $from = $stint->started_on->copy()->startOfDay();
-                if ($since && $from->lt($since)) {
-                    $from = $since->copy();
-                }
-
-                $to = ($stint->completed_on ?? $today)->copy()->startOfDay();
-                if ($to->gt($today)) {
-                    $to = $today->copy();
-                }
-
-                $downtime += max(0, (int) $from->diffInDays($to));
-
-                // Only completed jobs are spend; an open estimate is not money
-                // out of the door yet.
-                if ($stint->completed_on !== null) {
-                    $maintenanceSpend += (float) ($stint->cost ?? 0);
-                }
-            }
-
-            $downtime = min($downtime, max(0, $daysInService - $hireDays));
-            $available = max(0, $daysInService - $hireDays - $downtime);
-            $utilisation = $daysInService > 0 ? (int) round($hireDays / $daysInService * 100) : 0;
-            $contribution = round($revenue - $maintenanceSpend, 2);
-            $cost = (float) $unit->cost_price;
-            $returnOnCost = $cost > 0 ? round($contribution / $cost * 100, 1) : null;
-
-            $signal = match (true) {
-                // No history to judge yet: a unit that has already been hired is
-                // judged on what it has done, however recently it arrived.
-                $daysInService < 30 && $hireDays === 0 => 'Too new',
-                $maintenanceSpend > 0 && $maintenanceSpend >= $revenue => 'Stop repairing',
-                $utilisation < 25 => 'Low use',
-                $utilisation >= 60 && $contribution > 0 => 'Strong',
-                default => 'Watch',
-            };
-
-            return [
-                'unit' => $unit,
-                'since' => $since,
-                'days_in_service' => $daysInService,
-                'hire_days' => $hireDays,
-                'downtime' => $downtime,
-                'available' => $available,
-                'utilisation' => $utilisation,
-                'revenue' => round($revenue, 2),
-                'maintenance' => round($maintenanceSpend, 2),
-                'contribution' => $contribution,
-                'book' => $unit->bookValue(),
-                'return_on_cost' => $returnOnCost,
-                'signal' => $signal,
-            ];
-        })->sortBy('utilisation')->values();
+        $rows = $units
+            ->map(fn (Product $unit) => $utilisation->calculate(
+                $unit,
+                $itemsByUnit->get($unit->id, collect()),
+                $maintenanceByUnit->get($unit->id, collect()),
+                $today
+            ))
+            ->sortBy('utilisation')
+            ->values();
 
         $total = [
             'days_in_service' => (int) $rows->sum('days_in_service'),
