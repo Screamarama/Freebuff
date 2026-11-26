@@ -113,13 +113,19 @@ class ReservationViewTest extends TestCase
         $user = $this->user();
         $reservation = $this->reservation($this->product($user));
 
+        $this->actingAs($user)
+            ->get(route('reservations.show', $reservation))
+            ->assertOk()
+            ->assertSee('Item stays available until');
+
         foreach (['cancelled', 'completed'] as $status) {
             $reservation->update(['status' => $status]);
 
             $this->actingAs($user)
                 ->get(route('reservations.show', $reservation))
                 ->assertOk()
-                ->assertDontSee('Convert to agreement');
+                ->assertDontSee('Convert to agreement')
+                ->assertDontSee('Item stays available until');
 
             $this->actingAs($user)
                 ->post(route('reservations.convert', $reservation))
