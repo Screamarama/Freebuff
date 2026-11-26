@@ -5,22 +5,31 @@
                 {{ $product->name }}
             </h2>
             <div class="flex items-center gap-3">
-                @if ($product->isRental() && ! $product->isInServiceHold()
-                    && in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
-                    <a href="{{ route('service-hold.reopen.form', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
-                        Return to service hold
+                @if ($product->isDisposed())
+                    <span class="inline-flex items-center rounded px-2 py-1 text-xs font-semibold bg-gray-100 text-gray-700">
+                        Disposed {{ $product->disposal?->disposed_on?->format('M j, Y') }}
+                    </span>
+                @else
+                    @if ($product->isRental() && ! $product->isInServiceHold()
+                        && in_array(auth()->user()?->role, ['super_admin', 'admin', 'manager'], true))
+                        <a href="{{ route('service-hold.reopen.form', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
+                            Return to service hold
+                        </a>
+                        <a href="{{ route('products.dispose', $product) }}" class="text-sm text-gray-600 hover:text-gray-900">
+                            Dispose / sell
+                        </a>
+                    @endif
+                    <a href="{{ route('products.edit', $product) }}"
+                       class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
+                        Edit
                     </a>
+                    <form method="POST" action="{{ route('products.destroy', $product) }}"
+                          onsubmit="return confirm('Delete this product?');">
+                        @csrf
+                        @method('DELETE')
+                        <x-secondary-button class="text-red-600">Delete</x-secondary-button>
+                    </form>
                 @endif
-                <a href="{{ route('products.edit', $product) }}"
-                   class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:bg-gray-700 active:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
-                    Edit
-                </a>
-                <form method="POST" action="{{ route('products.destroy', $product) }}"
-                      onsubmit="return confirm('Delete this product?');">
-                    @csrf
-                    @method('DELETE')
-                    <x-secondary-button class="text-red-600">Delete</x-secondary-button>
-                </form>
             </div>
         </div>
     </x-slot>
@@ -87,7 +96,13 @@
                     <div>
                         <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Status</dt>
                         <dd class="mt-1 text-sm text-gray-900">
-                            {{ $product->is_active ? 'Active' : 'Inactive' }}
+                            @if ($product->isDisposed())
+                                <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold bg-gray-100 text-gray-700">
+                                    Disposed {{ $product->disposal?->disposed_on?->format('M j, Y') }}
+                                </span>
+                            @else
+                                {{ $product->is_active ? 'Active' : 'Inactive' }}
+                            @endif
                             @if ($product->is_featured) <span class="text-indigo-600">(featured)</span> @endif
                         </dd>
                     </div>
@@ -124,15 +139,18 @@
                             <dd class="mt-1 text-sm text-gray-900"><x-money :amount="$product->monthlyDepreciation()" /></dd>
                         </div>
 
-                        <div>
-                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Book value today</dt>
-                            <dd class="mt-1 text-sm font-semibold text-gray-900">
-                                <x-money :amount="$product->bookValue() ?? $product->cost_price" />
-                                @if ($product->depreciation_started_on)
-                                    <span class="font-normal text-gray-500">since {{ $product->depreciation_started_on->format('M j, Y') }}</span>
-                                @endif
-                            </dd>
-                        </div>
+                        {{-- A disposed unit's book value stopped moving on the disposal date. --}}
+                        @if (! $product->isDisposed())
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Book value today</dt>
+                                <dd class="mt-1 text-sm font-semibold text-gray-900">
+                                    <x-money :amount="$product->bookValue() ?? $product->cost_price" />
+                                    @if ($product->depreciation_started_on)
+                                        <span class="font-normal text-gray-500">since {{ $product->depreciation_started_on->format('M j, Y') }}</span>
+                                    @endif
+                                </dd>
+                            </div>
+                        @endif
                     @endif
 
                     {{-- Resale expectation: management and office staff only. --}}
@@ -208,7 +226,70 @@
                 </dl>
             </div>
 
-            @if ($product->isRental())
+            @if ($product->isDisposed() && $product->disposal)
+                <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
+                    <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Disposal</h3>
+
+                    <dl class="mt-4 grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2 text-sm">
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Outcome</dt>
+                            <dd class="mt-1 text-gray-900">{{ $product->disposal->label() }}</dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Date</dt>
+                            <dd class="mt-1 text-gray-900">{{ $product->disposal->disposed_on?->format('M j, Y') }}</dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Price received</dt>
+                            <dd class="mt-1 text-gray-900"><x-money :amount="$product->disposal->price" /></dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Book value at disposal</dt>
+                            <dd class="mt-1 text-gray-900">
+                                @if ($product->disposal->book_value !== null)
+                                    <x-money :amount="$product->disposal->book_value" />
+                                @else
+                                    —
+                                @endif
+                            </dd>
+                        </div>
+
+                        <div>
+                            <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Gain / loss</dt>
+                            <dd class="mt-1 font-semibold {{ $product->disposal->gain() === null ? 'text-gray-500' : ($product->disposal->gain() >= 0 ? 'text-green-700' : 'text-red-700') }}">
+                                @if ($product->disposal->gain() === null)
+                                    Not recorded
+                                @elseif ($product->disposal->gain() >= 0)
+                                    Gain of <x-money :amount="$product->disposal->gain()" />
+                                @else
+                                    Loss of <x-money :amount="abs($product->disposal->gain())" />
+                                @endif
+                            </dd>
+                        </div>
+
+                        @if ($product->disposal->recordedBy)
+                            <div>
+                                <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Recorded by</dt>
+                                <dd class="mt-1 text-gray-900">
+                                    {{ $product->disposal->recordedBy->name }} · {{ $product->disposal->created_at->format('M j, Y') }}
+                                </dd>
+                            </div>
+                        @endif
+
+                        @if ($product->disposal->notes)
+                            <div class="sm:col-span-2">
+                                <dt class="text-xs font-medium uppercase tracking-widest text-gray-500">Notes</dt>
+                                <dd class="mt-1 text-gray-900">{{ $product->disposal->notes }}</dd>
+                            </div>
+                        @endif
+                    </dl>
+                </div>
+            @endif
+
+            @if ($product->isRental() && ! $product->isDisposed())
                 <div class="p-4 sm:p-8 bg-white shadow sm:rounded-lg max-w-3xl">
                     <div class="flex flex-wrap items-end justify-between gap-4">
                         <h3 class="text-sm font-semibold uppercase tracking-widest text-gray-500">Availability</h3>
