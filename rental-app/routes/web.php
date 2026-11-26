@@ -134,6 +134,8 @@ Route::middleware(['auth', 'superadmin.summary', 'role:super_admin,admin,manager
         ->name('reports.fleet-value.export');
     Route::get('/reports/fleet-history', [\App\Http\Controllers\FleetHistoryController::class, 'index'])
         ->name('reports.fleet-history');
+    Route::get('/reports/fleet-utilisation', [\App\Http\Controllers\FleetUtilisationController::class, 'index'])
+        ->name('reports.fleet-utilisation');
     Route::get('/sales-tax', [\App\Http\Controllers\SalesTaxReportController::class, 'index'])->name('sales-tax.index');
     Route::get('/sales-tax/export', [\App\Http\Controllers\SalesTaxReportController::class, 'export'])->name('sales-tax.export');
     Route::post('/sales-tax/filings', [\App\Http\Controllers\SalesTaxReportController::class, 'storeFiling'])->name('sales-tax.filings.store');
